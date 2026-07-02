@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TB4L — Think Big for Life</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/main.css" />
+</head>
+<body>
+  <div class="ambient-bg" aria-hidden="true">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <header class="site-header" id="site-header">
+    <div class="header-inner">
+      <a href="#/" class="logo" data-nav>
+        <span class="logo-mark">TB4L</span>
+        <span class="logo-tag">Demo</span>
+      </a>
+      <nav class="main-nav" aria-label="Main">
+        <a href="#/" class="nav-link" data-nav data-page="welcome">Welcome</a>
+        <a href="#/chat" class="nav-link" data-nav data-page="chat">TB4L Chat</a>
+        <a href="#/hub" class="nav-link" data-nav data-page="hub">TB4L Hub</a>
+      </nav>
+      <div class="header-actions">
+        <button class="btn-icon achievement-trigger" id="achievement-btn" title="Your achievements" aria-label="View achievements">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+          <span class="badge-dot" id="achievement-badge"></span>
+        </button>
+        <a href="#/chat" class="btn btn-primary btn-sm" data-nav>Try Chat</a>
+      </div>
+      <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </header>
+
+  <main id="app" class="app-main" role="main"></main>
+
+  <footer class="site-footer" id="site-footer">
+    <div class="footer-inner">
+      <p>&copy; 2026 TB4L — Think Big for Life. <span class="demo-pill">Demo Experience</span></p>
+      <div class="footer-links">
+        <a href="#/hub" data-nav>Resources</a>
+        <a href="#/hub/support" data-nav>Support</a>
+        <a href="#/hub/faqs" data-nav>FAQs</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Achievement Toast -->
+  <div class="achievement-toast" id="achievement-toast" role="status" aria-live="polite"></div>
+
+  <!-- Achievement Modal -->
+  <dialog class="modal achievement-modal" id="achievement-modal">
+    <div class="modal-header">
+      <h2>Your Achievements</h2>
+      <button class="btn-icon modal-close" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" id="achievement-list"></div>
+  </dialog>
+
+  <!-- File Preview Modal -->
+  <dialog class="modal preview-modal" id="preview-modal">
+    <div class="modal-header">
+      <h2 id="preview-title">File Preview</h2>
+      <button class="btn-icon modal-close" data-close-modal aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body" id="preview-body"></div>
+  </dialog>
+
+  <script type="module" src="assets/js/app.js"></script>
+</body>
+</html>
