@@ -1,16 +1,18 @@
 import {
   playbooks, templates, brandFiles, acceleratorOutputs,
   trainingSessions, glossary, faqs, team,
+  directConnections, sourceFileGroups, getKnowledgeItem,
 } from '../data/demo-data.js';
 import {
   toggleKnowledge, isKnowledgeSelected, getKnowledgeFiles,
-  addUploadedFile, getUploadedFiles,
+  addUploadedFile, getUploadedFiles, addUploadedSourceFile, getUploadedSourceFiles,
 } from '../state.js';
 import { checkAchievements, trackHubSection } from '../achievements.js';
 
 const hubSections = [
   { id: 'playbooks', icon: '📖', label: 'Playbooks' },
   { id: 'templates', icon: '📋', label: 'Templates' },
+  { id: 'sources', icon: '🔌', label: 'Sources' },
   { id: 'training', icon: '🎓', label: 'TB4L Training' },
   { id: 'brand', icon: '🎨', label: 'Brand & Strategy' },
   { id: 'accelerator', icon: '🚀', label: 'Accelerator Outputs' },
@@ -23,10 +25,17 @@ const hubSections = [
 let currentSection = 'playbooks';
 let searchQuery = '';
 let uploadedBrandFiles = [];
+let activeFileGroup = null;
+let showUploadForm = false;
 
 export function renderHub(section = 'playbooks') {
   currentSection = section;
-  const knowledgeCount = getKnowledgeFiles().length;
+  const knowledgeIds = getKnowledgeFiles();
+  const knowledgeItems = knowledgeIds
+    .map(id => getKnowledgeItem(id, getUploadedSourceFiles(), getUploadedFiles()))
+    .filter(Boolean);
+  const connectionCount = knowledgeItems.filter(k => k.sourceType === 'connection' || k.type === 'connection').length;
+  const fileCount = knowledgeItems.length - connectionCount;
 
   return `
     <div class="hub-layout">
@@ -44,13 +53,15 @@ export function renderHub(section = 'playbooks') {
           ${renderSectionContent(currentSection)}
         </div>
 
-        ${knowledgeCount > 0 ? `
+        ${knowledgeItems.length > 0 ? `
           <div class="knowledge-bar glass">
             <div class="knowledge-bar-info">
-              <span class="knowledge-count">${knowledgeCount}</span>
-              <span>file${knowledgeCount > 1 ? 's' : ''} selected as chat knowledge</span>
+              <span class="knowledge-count">${knowledgeItems.length}</span>
+              <span>source${knowledgeItems.length > 1 ? 's' : ''} active for chat</span>
+              ${connectionCount ? `<span class="tag tag-live">${connectionCount} direct</span>` : ''}
+              ${fileCount ? `<span class="tag">${fileCount} file${fileCount > 1 ? 's' : ''}</span>` : ''}
             </div>
-            <a href="#/chat" class="btn btn-primary btn-sm" data-nav>Chat with Knowledge →</a>
+            <a href="#/chat" class="btn btn-primary btn-sm" data-nav>Chat with Sources →</a>
           </div>
         ` : ''}
       </div>
@@ -64,6 +75,7 @@ function renderSectionContent(section) {
   switch (section) {
     case 'playbooks': return renderResourceSection('Playbooks', 'Proven methodologies and process guides for TB4L execution.', playbooks, 'playbook');
     case 'templates': return renderResourceSection('Templates', 'Ready-to-use frameworks and document templates for your TB4L projects.', templates, 'template');
+    case 'sources': return renderSources();
     case 'training': return renderTraining();
     case 'brand': return renderBrandStrategy();
     case 'accelerator': return renderResourceSection('Accelerator Outputs', 'Innovations and outputs from past TB4L accelerator cohorts.', acceleratorOutputs, 'accelerator');
@@ -111,6 +123,206 @@ function renderResourceCard(item, typeClass) {
         <button class="btn btn-secondary btn-sm" data-summary="${item.id}">Summary</button>
       </div>
     </div>
+  `;
+}
+
+function renderActiveChatSources() {
+  const ids = getKnowledgeFiles();
+  if (!ids.length) return '';
+
+  const items = ids
+    .map(id => getKnowledgeItem(id, getUploadedSourceFiles(), getUploadedFiles()))
+    .filter(Boolean);
+
+  return `
+    <div class="active-chat-sources glass">
+      <div class="active-chat-header">
+        <span class="sidebar-label" style="margin:0">Active in Chat</span>
+        <button type="button" class="btn btn-ghost btn-sm" data-disconnect-all>Disconnect all</button>
+      </div>
+      <div class="active-chat-list">
+        ${items.map(item => {
+          const isConn = item.sourceType === 'connection' || item.type === 'connection';
+          const label = isConn ? `${item.code} — ${item.name}` : item.title;
+          const icon = isConn ? '🔌' : '📄';
+          const typeLabel = isConn ? 'Direct' : (item.groupLabel || item.type || 'File');
+
+          return `
+            <div class="active-chat-item">
+              <span class="active-chat-icon">${icon}</span>
+              <div class="active-chat-info">
+                <strong>${label}</strong>
+                <span class="tag">${typeLabel}</span>
+              </div>
+              <button type="button" class="btn-disconnect" data-disconnect="${item.id}" title="Disconnect from chat">Disconnect</button>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderSources() {
+  const uploadedSources = getUploadedSourceFiles();
+  const connectedCount = directConnections.filter(c => c.connected).length;
+
+  return `
+    <div class="hub-section-header">
+      <h2>Sources</h2>
+      <p>Connect live data feeds and upload files for TB4L Chat. Active sources power AI responses in the background.</p>
+    </div>
+
+    ${renderActiveChatSources()}
+
+    <div class="sources-tabs">
+      <button class="sources-tab active" data-sources-tab="connections">Direct Connections</button>
+      <button class="sources-tab" data-sources-tab="files">Uploaded Files</button>
+    </div>
+
+    <div id="sources-tab-connections" class="sources-panel">
+      <div class="sources-summary glass">
+        <span class="conn-stat"><strong>${connectedCount}</strong> of ${directConnections.length} connected</span>
+        <span class="conn-stat-hint">Select connected feeds to include in chat</span>
+      </div>
+      <div class="connections-grid">
+        ${directConnections.map(conn => {
+          const selected = isKnowledgeSelected(conn.id);
+          const statusClass = conn.connected ? 'conn-live' : 'conn-offline';
+          const statusLabel = conn.connected ? 'Connected' : 'Not connected';
+
+          return `
+            <div class="card connection-card ${conn.connected ? '' : 'connection-disabled'} ${selected ? 'selected' : ''}" data-connection-id="${conn.id}" data-connected="${conn.connected}">
+              <div class="connection-header">
+                <div class="connection-code">${conn.code}</div>
+                <span class="connection-status ${statusClass}">
+                  <span class="status-indicator"></span>
+                  ${statusLabel}
+                </span>
+              </div>
+              <h4>${conn.name}</h4>
+              <p>${conn.description}</p>
+              ${conn.connected ? `
+                <div class="connection-meta">
+                  <span>Last sync: ${conn.lastSync}</span>
+                  ${selected ? '<span class="tag tag-live">Active in chat</span>' : ''}
+                </div>
+                <button class="btn ${selected ? 'btn-disconnect-sm' : 'btn-primary'} btn-sm connection-toggle" data-toggle-conn="${conn.id}">
+                  ${selected ? 'Disconnect from Chat' : 'Add to Chat'}
+                </button>
+              ` : `
+                <div class="connection-meta offline-meta">
+                  <span>Connection not established</span>
+                </div>
+                <button class="btn btn-ghost btn-sm" disabled>Connect first</button>
+                <button class="btn btn-secondary btn-sm" data-request-conn="${conn.id}" style="margin-left:8px">Request Access</button>
+              `}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+
+    <div id="sources-tab-files" class="sources-panel" style="display:none">
+      ${renderFilesPanel(uploadedSources)}
+    </div>
+  `;
+}
+
+function renderFilesPanel(uploadedSources) {
+  const totalFiles = uploadedSources.length;
+  const activeGroup = activeFileGroup ? sourceFileGroups.find(g => g.id === activeFileGroup) : null;
+  const activeFiles = activeGroup ? uploadedSources.filter(f => f.groupId === activeGroup.id) : [];
+
+  return `
+    <div class="files-panel-top">
+      <span class="files-count">${totalFiles} file${totalFiles !== 1 ? 's' : ''} uploaded</span>
+      <span class="files-hint">Pick a type below to upload or manage files</span>
+    </div>
+
+    <div class="file-types-grid">
+      ${sourceFileGroups.map(group => {
+        const count = uploadedSources.filter(f => f.groupId === group.id).length;
+        const isActive = activeFileGroup === group.id;
+        const shortLabel = group.label.replace('Brand Health Tracker', 'Brand Health').replace('Usage & Attitude (U&A)', 'U&A').replace('Brand Activation Pulse (BAP)', 'BAP').replace('Penetration Monthly Track (PMT)', 'PMT').replace('Campaign Tracker / BLS', 'Campaign / BLS').replace('Integrated Marketing Planning', 'IMP');
+
+        return `
+          <button type="button" class="file-type-tile ${isActive ? 'active' : ''}" data-select-group="${group.id}">
+            <span class="ft-icon">${group.icon}</span>
+            <span class="ft-label">${shortLabel}</span>
+            ${count ? `<span class="ft-badge">${count}</span>` : ''}
+          </button>
+        `;
+      }).join('')}
+    </div>
+
+    ${activeGroup ? `
+      <div class="file-group-detail glass">
+        <div class="file-detail-header">
+          <div>
+            <h4>${activeGroup.icon} ${activeGroup.label}</h4>
+            <p>${activeGroup.description}</p>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm" data-open-upload="${activeGroup.id}">${showUploadForm ? 'Hide upload' : activeGroup.uploadLabel}</button>
+        </div>
+
+        ${showUploadForm ? `
+          <div class="file-upload-compact">
+            <div class="upload-row">
+              <div class="source-upload-drop source-upload-drop-sm" data-group-upload="${activeGroup.id}">
+                <span>📤</span>
+                <span>Choose file</span>
+                <input type="file" hidden data-file-input="${activeGroup.id}" accept=".csv,.xlsx,.xls,.pdf,.pptx,.docx" />
+              </div>
+              <input class="form-input" data-upload-name="${activeGroup.id}" placeholder="File name" />
+            </div>
+            <textarea class="form-input upload-desc" data-upload-desc="${activeGroup.id}" rows="2" placeholder="What is this file about? (1–2 sentences for the AI)"></textarea>
+            <div class="source-upload-actions">
+              <button class="btn btn-primary btn-sm" data-confirm-source="${activeGroup.id}">Save & Add to Chat</button>
+              <button class="btn btn-ghost btn-sm" data-cancel-source="${activeGroup.id}">Cancel</button>
+            </div>
+          </div>
+        ` : ''}
+
+        ${activeFiles.length ? `
+          <div class="file-list-compact">
+            ${activeFiles.map(f => `
+              <div class="file-row ${isKnowledgeSelected(f.id) ? 'selected' : ''}">
+                <div class="file-row-main">
+                  <strong>${f.title}</strong>
+                  ${f.aiDescription ? `<span class="file-row-desc" title="${f.aiDescription}">${f.aiDescription}</span>` : ''}
+                </div>
+                <button class="btn ${isKnowledgeSelected(f.id) ? 'btn-disconnect-sm' : 'btn-secondary'} btn-sm" data-toggle-source="${f.id}">
+                  ${isKnowledgeSelected(f.id) ? 'Disconnect' : 'Add to Chat'}
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        ` : `<p class="source-empty-inline">No files in this category yet.</p>`}
+      </div>
+    ` : `
+      <div class="file-group-placeholder glass">
+        <span>👆</span> Select a file type above to upload or view files
+      </div>
+    `}
+
+    ${totalFiles > 0 ? `
+      <div class="all-files-strip">
+        <div class="sidebar-label">All uploads</div>
+        <div class="all-files-scroll">
+          ${uploadedSources.map(f => `
+            <div class="file-chip ${isKnowledgeSelected(f.id) ? 'active' : ''}" data-jump-group="${f.groupId}" title="${f.aiDescription || f.title}">
+              <span class="file-chip-type">${sourceFileGroups.find(g => g.id === f.groupId)?.icon || '📁'}</span>
+              <span class="file-chip-name">${f.title}</span>
+              ${isKnowledgeSelected(f.id)
+                ? `<button type="button" class="file-chip-disconnect" data-disconnect="${f.id}" title="Disconnect from chat">×</button>`
+                : `<button type="button" class="file-chip-toggle" data-toggle-source="${f.id}" title="Add to chat">+</button>`
+              }
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
   `;
 }
 
@@ -348,8 +560,7 @@ function filterItems(items) {
 }
 
 function getResourceById(id) {
-  const all = [...playbooks, ...templates, ...brandFiles, ...acceleratorOutputs, ...uploadedBrandFiles, ...getUploadedFiles()];
-  return all.find(r => r.id === id);
+  return getKnowledgeItem(id, getUploadedSourceFiles(), [...uploadedBrandFiles, ...getUploadedFiles()]);
 }
 
 function showPreview(resource, mode = 'preview') {
@@ -480,6 +691,168 @@ function bindSectionEvents() {
 
   initUploadZone();
   initSupport();
+  initSourcesEvents();
+}
+
+function initSourcesEvents() {
+  document.querySelectorAll('[data-sources-tab]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('[data-sources-tab]').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const target = tab.dataset.sourcesTab;
+      document.getElementById('sources-tab-connections').style.display = target === 'connections' ? 'block' : 'none';
+      document.getElementById('sources-tab-files').style.display = target === 'files' ? 'block' : 'none';
+    });
+  });
+
+  document.querySelectorAll('[data-toggle-conn]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasActive = isKnowledgeSelected(btn.dataset.toggleConn);
+      toggleKnowledge(btn.dataset.toggleConn);
+      checkAchievements('select-knowledge');
+      showDemoToast(wasActive ? 'Disconnected from chat' : 'Added to chat');
+      rerenderHub();
+    });
+  });
+
+  document.querySelectorAll('[data-request-conn]').forEach(btn => {
+    btn.addEventListener('click', () => showDemoToast('📨 Access request sent (demo)'));
+  });
+
+  document.querySelectorAll('[data-disconnect]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleKnowledge(btn.dataset.disconnect);
+      showDemoToast('Disconnected from chat');
+      rerenderHub();
+    });
+  });
+
+  document.querySelectorAll('[data-disconnect-all]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      [...getKnowledgeFiles()].forEach(id => toggleKnowledge(id));
+      showDemoToast('All sources disconnected');
+      rerenderHub();
+    });
+  });
+
+  bindFilesPanelEvents();
+}
+
+function refreshFilesPanel() {
+  const panel = document.getElementById('sources-tab-files');
+  if (!panel || currentSection !== 'sources') return;
+  panel.innerHTML = renderFilesPanel(getUploadedSourceFiles());
+  bindFilesPanelEvents();
+}
+
+function bindFilesPanelEvents() {
+  document.querySelectorAll('[data-select-group]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.selectGroup;
+      activeFileGroup = activeFileGroup === id ? null : id;
+      showUploadForm = false;
+      refreshFilesPanel();
+    });
+  });
+
+  document.querySelectorAll('[data-open-upload]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      showUploadForm = !showUploadForm;
+      refreshFilesPanel();
+    });
+  });
+
+  document.querySelectorAll('[data-jump-group]').forEach(chip => {
+    chip.addEventListener('click', (e) => {
+      if (e.target.closest('.file-chip-toggle') || e.target.closest('.file-chip-disconnect')) return;
+      activeFileGroup = chip.dataset.jumpGroup;
+      showUploadForm = false;
+      refreshFilesPanel();
+    });
+  });
+
+  document.querySelectorAll('[data-group-upload]').forEach(zone => {
+    const groupId = zone.dataset.groupUpload;
+    const input = document.querySelector(`[data-file-input="${groupId}"]`);
+
+    zone.addEventListener('click', () => input?.click());
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.classList.remove('dragover');
+      showUploadForm = true;
+      refreshFilesPanel();
+      showDemoToast('📄 File received (demo)');
+    });
+    input?.addEventListener('change', () => {
+      if (input.files?.length) {
+        showUploadForm = true;
+        refreshFilesPanel();
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-confirm-source]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const groupId = btn.dataset.confirmSource;
+      const group = sourceFileGroups.find(g => g.id === groupId);
+      const name = document.querySelector(`[data-upload-name="${groupId}"]`)?.value || `${group?.label} Upload`;
+      const aiDescription = document.querySelector(`[data-upload-desc="${groupId}"]`)?.value || '';
+
+      const file = {
+        id: `src-${Date.now()}`,
+        title: name,
+        description: aiDescription || `Uploaded ${group?.label} file.`,
+        aiDescription,
+        groupId,
+        groupLabel: group?.label,
+        type: 'source',
+        sourceType: 'file',
+        tags: [group?.label || 'Source'],
+        summary: aiDescription || `Source file: ${name} (${group?.label}).`,
+        preview: `## ${name}\n\n**Type:** ${group?.label}\n\n**About this file:**\n${aiDescription || 'No description provided.'}`,
+      };
+
+      addUploadedSourceFile(file);
+      toggleKnowledge(file.id);
+      activeFileGroup = groupId;
+      showUploadForm = false;
+      checkAchievements('upload');
+      checkAchievements('select-knowledge');
+      showDemoToast('✅ File saved and added to chat sources!');
+      rerenderHub();
+    });
+  });
+
+  document.querySelectorAll('[data-cancel-source]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      showUploadForm = false;
+      refreshFilesPanel();
+    });
+  });
+
+  document.querySelectorAll('[data-toggle-source]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wasActive = isKnowledgeSelected(btn.dataset.toggleSource);
+      toggleKnowledge(btn.dataset.toggleSource);
+      checkAchievements('select-knowledge');
+      showDemoToast(wasActive ? 'Disconnected from chat' : 'Added to chat');
+      rerenderHub();
+    });
+  });
+
+  document.querySelectorAll('[data-disconnect]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleKnowledge(btn.dataset.disconnect);
+      showDemoToast('Disconnected from chat');
+      rerenderHub();
+    });
+  });
 }
 
 function initUploadZone() {

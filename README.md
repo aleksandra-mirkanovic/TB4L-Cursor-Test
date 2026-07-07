@@ -8,6 +8,34 @@ A modern, marketing-oriented demo website for **Think Big for Life (TB4L)** feat
 
 ## Quick Start
 
+### Run the site (1 click)
+
+1. Open folder: `c:\Users\GODLI\Cursor test\tb4l-site`
+2. **Double-click `START-SITE.bat`**
+3. Your browser opens at **http://localhost:5500**
+
+Keep the black terminal window open while using the site. Close it (or press Ctrl+C) to stop.
+
+### Push to GitHub (1 click)
+
+1. Create an **empty** repo on GitHub (no README)
+2. **Double-click `PUSH-TO-GITHUB.bat`**
+3. Paste your repo URL the first time — it’s saved for next time
+4. Sign in when Git asks (use a Personal Access Token as the password)
+
+To change the saved repo URL later, delete the file `.github-repo-url` and run the script again.
+
+### Manual start (terminal)
+
+```powershell
+cd "c:\Users\GODLI\Cursor test\tb4l-site"
+py -m http.server 5500
+```
+
+Then open **http://localhost:5500** in your browser.
+
+> **Note:** Port `5500` is used instead of `8080` to avoid conflicts with other apps on your PC.
+
 ### Option 1: Open directly (limited)
 Open `index.html` in your browser. Note: ES modules may require a local server on some browsers.
 

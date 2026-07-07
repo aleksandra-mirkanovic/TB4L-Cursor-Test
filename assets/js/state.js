@@ -6,6 +6,7 @@ const defaultState = {
   visitedSections: [],
   chatCount: 0,
   uploadedFiles: [],
+  uploadedSourceFiles: [],
   firstVisit: true,
 };
 
@@ -54,8 +55,21 @@ export function addUploadedFile(file) {
   persist();
 }
 
+export function addUploadedSourceFile(file) {
+  state.uploadedSourceFiles.push(file);
+  persist();
+}
+
 export function getUploadedFiles() {
   return [...state.uploadedFiles];
+}
+
+export function getUploadedSourceFiles() {
+  return [...state.uploadedSourceFiles];
+}
+
+export function getActiveSourceCount() {
+  return state.knowledgeFiles.length;
 }
 
 export function getAllFiles() {

@@ -1,5 +1,5 @@
-import { allResources, chatSuggestions, demoResponses } from '../data/demo-data.js';
-import { getKnowledgeFiles, toggleKnowledge } from '../state.js';
+import { chatSuggestions, demoResponses, getKnowledgeItem, directConnections } from '../data/demo-data.js';
+import { getKnowledgeFiles, toggleKnowledge, getUploadedSourceFiles, getUploadedFiles } from '../state.js';
 import { checkAchievements } from '../achievements.js';
 
 let messages = [];
@@ -8,8 +8,16 @@ let responseIndex = 0;
 
 export function renderChat() {
   const knowledge = getKnowledgeFiles();
-  const resources = allResources();
-  const knowledgeItems = knowledge.map(id => resources.find(r => r.id === id)).filter(Boolean);
+  const sourceFiles = getUploadedSourceFiles();
+  const uploaded = getUploadedFiles();
+  const knowledgeItems = knowledge
+    .map(id => getKnowledgeItem(id, sourceFiles, uploaded))
+    .filter(Boolean);
+
+  const connections = knowledgeItems.filter(k => k.sourceType === 'connection' || k.type === 'connection');
+  const files = knowledgeItems.filter(k => k.sourceType !== 'connection' && k.type !== 'connection');
+
+  const liveConnections = directConnections.filter(c => c.connected);
 
   return `
     <div class="chat-layout">
@@ -29,15 +37,32 @@ export function renderChat() {
             <span>🎯</span> Brand Canvas Draft
           </div>
         </div>
+
         <div class="sidebar-section">
-          <div class="sidebar-label">Knowledge Base</div>
-          ${knowledgeItems.length ? knowledgeItems.map(f => `
-            <div class="knowledge-chip">
-              <span>📄</span>
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.title}</span>
+          <div class="sidebar-label">Direct Connections</div>
+          ${liveConnections.length ? liveConnections.map(c => {
+            const active = isConnectionActive(c.id, knowledge);
+            return `
+              <div class="connection-chip ${active ? 'active' : ''}" title="${c.name}">
+                <span class="conn-dot ${active ? 'live' : ''}"></span>
+                <span class="conn-code">${c.code}</span>
+                ${active ? '<span class="conn-badge">Live</span>' : ''}
+              </div>
+            `;
+          }).join('') : '<p class="sidebar-empty">No connections available</p>'}
+        </div>
+
+        <div class="sidebar-section">
+          <div class="sidebar-label">Active Sources</div>
+          ${knowledgeItems.length ? knowledgeItems.map(f => {
+            const isConn = f.sourceType === 'connection' || f.type === 'connection';
+            return `
+            <div class="knowledge-chip ${isConn ? 'knowledge-chip-conn' : ''}">
+              <span>${isConn ? '🔌' : '📄'}</span>
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${isConn ? f.code : f.title}</span>
               <button class="remove-kb" data-remove-kb="${f.id}" title="Remove">×</button>
             </div>
-          `).join('') : '<p style="font-size:0.8rem;color:var(--text-dim)">No files selected. <a href="#/hub" data-nav style="color:var(--accent)">Browse Hub →</a></p>'}
+          `}).join('') : '<p style="font-size:0.8rem;color:var(--text-dim)">No sources active. <a href="#/hub/sources" data-nav style="color:var(--accent)">Add Sources →</a></p>'}
         </div>
       </aside>
 
@@ -51,14 +76,22 @@ export function renderChat() {
             </select>
             <div class="chat-status">
               <span class="status-dot"></span>
-              ${knowledgeItems.length ? `${knowledgeItems.length} knowledge file${knowledgeItems.length > 1 ? 's' : ''} active` : 'No knowledge selected'}
+              ${renderSourceStatus(connections.length, files.length)}
             </div>
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-ghost btn-sm" id="clear-chat-btn">Clear</button>
-            <a href="#/hub" class="btn btn-secondary btn-sm" data-nav>+ Add Knowledge</a>
+            <a href="#/hub/sources" class="btn btn-secondary btn-sm" data-nav>+ Add Sources</a>
           </div>
         </div>
+
+        ${knowledgeItems.length ? `
+          <div class="chat-sources-bar">
+            <span class="chat-sources-label">Background sources:</span>
+            ${connections.map(c => `<span class="source-pill source-pill-conn"><span class="conn-dot live"></span>${c.code}</span>`).join('')}
+            ${files.map(f => `<span class="source-pill"><span>📄</span>${f.title}</span>`).join('')}
+          </div>
+        ` : ''}
 
         <div class="messages-area" id="messages-area">
           ${messages.length === 0 ? renderEmptyState() : messages.map(renderMessage).join('')}
@@ -88,12 +121,24 @@ export function renderChat() {
   `;
 }
 
+function isConnectionActive(id, knowledge) {
+  return knowledge.includes(id);
+}
+
+function renderSourceStatus(connCount, fileCount) {
+  if (!connCount && !fileCount) return 'No sources active';
+  const parts = [];
+  if (connCount) parts.push(`${connCount} direct connection${connCount > 1 ? 's' : ''}`);
+  if (fileCount) parts.push(`${fileCount} file${fileCount > 1 ? 's' : ''}`);
+  return parts.join(' · ') + ' active';
+}
+
 function renderEmptyState() {
   return `
     <div class="welcome-chat-empty">
       <div style="font-size:3rem;margin-bottom:16px">✨</div>
       <h2>Welcome to TB4L Chat</h2>
-      <p>Your AI-powered innovation assistant. Select knowledge from the Hub, then ask anything about TB4L, brand strategy, or your projects.</p>
+      <p>Your AI-powered innovation assistant. Connect live data feeds and upload files in Sources, then ask anything about TB4L, brand strategy, or your projects.</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
         ${chatSuggestions.slice(0, 3).map(s => `<button class="suggestion-chip" data-suggestion="${s}">${s}</button>`).join('')}
       </div>

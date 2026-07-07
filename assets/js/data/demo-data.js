@@ -183,12 +183,142 @@ export const demoResponses = [
   "A compelling consumer tension has three qualities:\n\n• **Emotional weight** — it matters deeply to the consumer\n• **Frequency** — it occurs often enough to build a habit\n• **Gap** — current solutions don't adequately address it\n\nExample: 'I want to eat sustainably but convenience food packaging creates guilt' — that's a tension Hellmann's Food Waste Initiative directly addresses.",
 ];
 
+export const directConnections = [
+  {
+    id: 'dc-m360',
+    code: 'M360',
+    name: 'Bayer Marketing 360',
+    description: 'Consumer & equity tracking.',
+    connected: true,
+    lastSync: '2 hours ago',
+    sourceType: 'connection',
+  },
+  {
+    id: 'dc-bht',
+    code: 'BHT',
+    name: 'Brand Health Tracker',
+    description: 'Recall, recommendation, trust.',
+    connected: true,
+    lastSync: '5 hours ago',
+    sourceType: 'connection',
+  },
+  {
+    id: 'dc-fico',
+    code: 'FICO',
+    name: 'Financial & In-Market Outcomes',
+    description: 'Financial & in-market commercial outcomes.',
+    connected: false,
+    lastSync: null,
+    sourceType: 'connection',
+  },
+  {
+    id: 'dc-eda',
+    code: 'EDA',
+    name: 'External Data Aggregator',
+    description: 'Syndicated 3rd-party feeds.',
+    connected: true,
+    lastSync: '1 day ago',
+    sourceType: 'connection',
+  },
+  {
+    id: 'dc-mmm',
+    code: 'MMM',
+    name: 'Marketing Mix Modelling',
+    description: 'Media response & elasticity.',
+    connected: false,
+    lastSync: null,
+    sourceType: 'connection',
+  },
+];
+
+export const sourceFileGroups = [
+  {
+    id: 'sellout',
+    label: 'Sell Out Data',
+    uploadLabel: 'Upload to Sell',
+    description: 'Point-of-sale and sell-out performance data.',
+    icon: '📊',
+  },
+  {
+    id: 'brand-health',
+    label: 'Brand Health Tracker',
+    uploadLabel: 'Upload to Brand',
+    description: 'Brand awareness, equity, and health metrics.',
+    icon: '💚',
+  },
+  {
+    id: 'ua',
+    label: 'Usage & Attitude (U&A)',
+    uploadLabel: 'Upload to Usage',
+    description: 'Consumer usage patterns and attitudes research.',
+    icon: '🔍',
+  },
+  {
+    id: 'customer',
+    label: 'Customer Scorecard',
+    uploadLabel: 'Upload to Customer',
+    description: 'Customer performance scorecard and metrics.',
+    icon: '⭐',
+  },
+  {
+    id: 'bap',
+    label: 'Brand Activation Pulse (BAP)',
+    uploadLabel: 'Upload to Brand',
+    description: 'Brand activation performance measurement.',
+    icon: '⚡',
+  },
+  {
+    id: 'pmt',
+    label: 'Penetration Monthly Track (PMT)',
+    uploadLabel: 'Upload to Penetration',
+    description: 'Monthly penetration and market share tracking.',
+    icon: '📈',
+  },
+  {
+    id: 'campaign',
+    label: 'Campaign Tracker / BLS',
+    uploadLabel: 'Upload to Campaign',
+    description: 'Campaign tracking and brand lift studies.',
+    icon: '🎯',
+  },
+  {
+    id: 'imp',
+    label: 'Integrated Marketing Planning',
+    uploadLabel: 'Upload to IMP',
+    description: 'Marketing mix effectiveness and ROI analysis.',
+    icon: '🧮',
+  },
+  {
+    id: 'other',
+    label: 'Other',
+    uploadLabel: 'Upload File',
+    description: "Anything that doesn't fit the buckets above.",
+    icon: '📁',
+  },
+];
+
 export const allResources = () => [
   ...playbooks,
   ...templates,
   ...brandFiles,
   ...acceleratorOutputs,
 ];
+
+export function getKnowledgeItem(id, uploadedSourceFiles = [], uploadedFiles = []) {
+  const fromResources = allResources().find(r => r.id === id);
+  if (fromResources) return fromResources;
+
+  const fromConnections = directConnections.find(c => c.id === id);
+  if (fromConnections) return { ...fromConnections, title: fromConnections.code, type: 'connection' };
+
+  const fromSource = uploadedSourceFiles.find(f => f.id === id);
+  if (fromSource) return fromSource;
+
+  const fromUpload = uploadedFiles.find(f => f.id === id);
+  if (fromUpload) return fromUpload;
+
+  return null;
+}
 
 export const achievementsList = [
   { id: 'first-visit', icon: '👋', title: 'Welcome Aboard', desc: 'Visit the TB4L platform for the first time' },

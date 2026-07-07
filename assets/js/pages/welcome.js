@@ -44,9 +44,9 @@ export function renderWelcome() {
           and get contextual answers powered by your selected knowledge files.
         </p>
         <ul class="feature-list">
-          <li>Context-aware responses from Hub resources</li>
+          <li>Live direct connections + uploaded files</li>
           <li>Streaming replies with copy & regenerate</li>
-          <li>Quick prompts and conversation history</li>
+          <li>Background sources bar shows active feeds</li>
           <li>Multi-model support (demo)</li>
         </ul>
         <a href="#/chat" class="btn btn-primary" data-nav>Open TB4L Chat →</a>
@@ -61,8 +61,8 @@ export function renderWelcome() {
         </p>
         <ul class="feature-list">
           <li>Playbooks, templates & brand strategy files</li>
-          <li>Upload & tag your own brand materials</li>
-          <li>Select files as chat knowledge sources</li>
+          <li>Direct connections — M360, BHT, FICO & more</li>
+          <li>Upload data files by type with AI descriptions</li>
           <li>Preview files with AI-generated summaries</li>
         </ul>
         <a href="#/hub" class="btn btn-accent-2" data-nav>Visit TB4L Hub →</a>
