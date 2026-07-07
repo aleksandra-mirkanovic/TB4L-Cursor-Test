@@ -58,13 +58,31 @@ if errorlevel 1 (
 echo.
 
 echo Syncing with GitHub first...
-git pull origin main --rebase --allow-unrelated-histories
+git fetch origin main
 if errorlevel 1 (
   echo.
-  echo Could not sync with GitHub. If you uploaded files on github.com,
-  echo try again or ask for help in Cursor.
+  echo Could not reach GitHub. Check your internet connection.
   pause
   exit /b 1
+)
+
+git rev-parse origin/main >nul 2>&1
+if errorlevel 1 (
+  echo Remote branch not found yet — pushing as first publish...
+) else (
+  git rebase origin/main
+  if errorlevel 1 (
+    echo.
+    echo Rebase failed. Trying merge instead...
+    git rebase --abort >nul 2>&1
+    git merge origin/main --no-edit
+    if errorlevel 1 (
+      echo.
+      echo Could not sync with GitHub. Ask for help in Cursor.
+      pause
+      exit /b 1
+    )
+  )
 )
 echo.
 
