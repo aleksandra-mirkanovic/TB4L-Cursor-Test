@@ -14,10 +14,8 @@ export function renderChat() {
     .map(id => getKnowledgeItem(id, sourceFiles, uploaded))
     .filter(Boolean);
 
-  const connections = knowledgeItems.filter(k => k.sourceType === 'connection' || k.type === 'connection');
+  const connections = directConnections.filter(c => c.connected);
   const files = knowledgeItems.filter(k => k.sourceType !== 'connection' && k.type !== 'connection');
-
-  const liveConnections = directConnections.filter(c => c.connected);
 
   return `
     <div class="chat-layout">
@@ -40,16 +38,13 @@ export function renderChat() {
 
         <div class="sidebar-section">
           <div class="sidebar-label">Direct Connections</div>
-          ${liveConnections.length ? liveConnections.map(c => {
-            const active = isConnectionActive(c.id, knowledge);
-            return `
-              <div class="connection-chip ${active ? 'active' : ''}" title="${c.name}">
-                <span class="conn-dot ${active ? 'live' : ''}"></span>
+          ${directConnections.length ? directConnections.map(c => `
+              <div class="connection-chip ${c.connected ? 'active' : ''}" title="${c.name}">
+                <span class="conn-dot ${c.connected ? 'live' : ''}"></span>
                 <span class="conn-code">${c.code}</span>
-                ${active ? '<span class="conn-badge">Live</span>' : ''}
+                ${c.connected ? '<span class="conn-badge">Connected</span>' : '<span class="conn-badge conn-badge-off">Offline</span>'}
               </div>
-            `;
-          }).join('') : '<p class="sidebar-empty">No connections available</p>'}
+            `).join('') : '<p class="sidebar-empty">No connections configured</p>'}
         </div>
 
         <div class="sidebar-section">
@@ -85,7 +80,7 @@ export function renderChat() {
           </div>
         </div>
 
-        ${knowledgeItems.length ? `
+        ${connections.length || files.length ? `
           <div class="chat-sources-bar">
             <span class="chat-sources-label">Background sources:</span>
             ${connections.map(c => `<span class="source-pill source-pill-conn"><span class="conn-dot live"></span>${c.code}</span>`).join('')}
@@ -121,16 +116,12 @@ export function renderChat() {
   `;
 }
 
-function isConnectionActive(id, knowledge) {
-  return knowledge.includes(id);
-}
-
 function renderSourceStatus(connCount, fileCount) {
-  if (!connCount && !fileCount) return 'No sources active';
+  if (!connCount && !fileCount) return 'No file sources active';
   const parts = [];
-  if (connCount) parts.push(`${connCount} direct connection${connCount > 1 ? 's' : ''}`);
+  if (connCount) parts.push(`${connCount} feed${connCount > 1 ? 's' : ''} connected`);
   if (fileCount) parts.push(`${fileCount} file${fileCount > 1 ? 's' : ''}`);
-  return parts.join(' · ') + ' active';
+  return parts.join(' · ');
 }
 
 function renderEmptyState() {

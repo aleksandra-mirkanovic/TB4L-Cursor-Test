@@ -8,7 +8,7 @@ const app = document.getElementById('app');
 const routes = {
   '/': { render: renderWelcome, init: initWelcome, page: 'welcome' },
   '/chat': { render: renderChat, init: initChat, page: 'chat' },
-  '/hub': { render: () => renderHub('playbooks'), init: () => initHub('playbooks'), page: 'hub' },
+  '/hub': { render: () => renderHub('home'), init: () => initHub('home'), page: 'hub' },
 };
 
 function parseRoute() {

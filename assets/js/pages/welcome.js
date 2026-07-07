@@ -70,23 +70,20 @@ export function renderWelcome() {
     </div>
 
     <section class="how-it-works">
-      <h2 class="section-title">How It Works</h2>
-      <p class="section-sub">Three steps to accelerate your TB4L innovation journey</p>
-      <div class="steps">
-        <div class="card step-card">
+      <h2 class="section-title">The TB4L Framework</h2>
+      <p class="section-sub">Define and Design — one unified platform experience</p>
+      <div class="steps steps-pillars">
+        <div class="card step-card pillar-define">
           <div class="step-num">1</div>
-          <h4>Explore the Hub</h4>
-          <p>Browse playbooks, templates, and brand files. Upload your own materials with custom tags.</p>
-        </div>
-        <div class="card step-card">
-          <div class="step-num">2</div>
+          <span class="pillar-label">Define</span>
           <h4>Select Knowledge</h4>
-          <p>Choose the files you want TB4L Chat to reference. Build your personalized knowledge base.</p>
+          <p>Explore the Hub, then choose the files and sources TB4L Chat should reference. Build your personalised knowledge base.</p>
         </div>
-        <div class="card step-card">
-          <div class="step-num">3</div>
-          <h4>Chat & Create</h4>
-          <p>Ask questions, draft strategies, and get AI-powered insights grounded in your selected resources.</p>
+        <div class="card step-card pillar-design">
+          <div class="step-num">2</div>
+          <span class="pillar-label">Design</span>
+          <h4>Shape & Create</h4>
+          <p>Draft strategies, map demand spaces, and turn insights into action with AI-assisted templates, playbooks, and chat.</p>
         </div>
       </div>
     </section>

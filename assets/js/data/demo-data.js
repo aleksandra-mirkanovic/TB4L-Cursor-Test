@@ -183,6 +183,74 @@ export const demoResponses = [
   "A compelling consumer tension has three qualities:\n\n• **Emotional weight** — it matters deeply to the consumer\n• **Frequency** — it occurs often enough to build a habit\n• **Gap** — current solutions don't adequately address it\n\nExample: 'I want to eat sustainably but convenience food packaging creates guilt' — that's a tension Hellmann's Food Waste Initiative directly addresses.",
 ];
 
+export function generateAITags(fileName = '', context = {}) {
+  const lower = (fileName || '').toLowerCase();
+
+  const brandMap = [
+    ['dove', 'Dove'], ['axe', 'Axe'], ["hellmann", "Hellmann's"], ['bayer', 'Bayer'],
+    ['nivea', 'Nivea'], ['clear', 'Clear'],
+  ];
+  let brand = context.brand || 'General';
+  for (const [key, label] of brandMap) {
+    if (lower.includes(key)) { brand = label; break; }
+  }
+
+  const marketMap = [
+    ['uk', 'UK'], ['germany', 'Germany'], ['usa', 'USA'], ['brazil', 'Brazil'],
+    ['france', 'France'], ['apac', 'APAC'], ['global', 'Global'],
+  ];
+  let market = context.market || 'Global';
+  for (const [key, label] of marketMap) {
+    if (lower.includes(key)) { market = label; break; }
+  }
+
+  const fileType = context.groupLabel || context.fileType || inferFileType(lower);
+
+  return {
+    brand,
+    market,
+    fileType,
+    tags: [...new Set([brand, market, fileType, 'AI-tagged'])],
+    aiDescription: `AI detected ${brand} ${fileType.toLowerCase()} for the ${market} market.`,
+  };
+}
+
+function inferFileType(name) {
+  if (name.includes('campaign') || name.includes('bls')) return 'Campaign Data';
+  if (name.includes('brand') || name.includes('bht')) return 'Brand Health';
+  if (name.includes('sell') || name.includes('pos')) return 'Sell-out Data';
+  if (name.includes('strategy') || name.includes('canvas')) return 'Brand Strategy';
+  if (name.includes('training') || name.includes('workshop')) return 'Training Material';
+  return 'Research Data';
+}
+
+export function searchHubWithAI(query, resources = []) {
+  const q = query.toLowerCase().trim();
+  if (!q) return [];
+
+  const terms = q.split(/\s+/).filter(Boolean);
+  const scored = resources.map(item => {
+    const haystack = [
+      item.title, item.description, item.brand, item.country,
+      item.demandSpace, item.type, ...(item.tags || []),
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    let score = 0;
+    terms.forEach(term => {
+      if (haystack.includes(term)) score += 2;
+      if (item.title?.toLowerCase().includes(term)) score += 3;
+      if ((item.tags || []).some(t => t.toLowerCase().includes(term))) score += 2;
+    });
+    return { item, score };
+  });
+
+  return scored
+    .filter(r => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 6)
+    .map(r => r.item);
+}
+
 export const directConnections = [
   {
     id: 'dc-m360',
@@ -302,7 +370,59 @@ export const allResources = () => [
   ...templates,
   ...brandFiles,
   ...acceleratorOutputs,
-];
+].map(withHubMeta);
+
+export const hubResourceMeta = {
+  'pb-1': { updatedLabel: '2 days ago', freshness: 'fresh', popular: true, recommended: true, pinned: true, relatedIds: ['tm-1', 'bf-1'] },
+  'pb-2': { updatedLabel: '5 days ago', freshness: 'fresh', popular: true, recommended: true, pinned: false, relatedIds: ['pb-1', 'tm-3'] },
+  'pb-3': { updatedLabel: '3 weeks ago', freshness: 'current', popular: false, recommended: true, pinned: false, relatedIds: ['ao-1', 'tm-2'] },
+  'tm-1': { updatedLabel: '1 day ago', freshness: 'fresh', popular: true, recommended: true, pinned: true, relatedIds: ['pb-1', 'bf-2'] },
+  'tm-2': { updatedLabel: '4 days ago', freshness: 'fresh', popular: true, recommended: false, pinned: false, relatedIds: ['pb-3', 'ao-2'] },
+  'tm-3': { updatedLabel: '2 weeks ago', freshness: 'current', popular: false, recommended: true, pinned: false, relatedIds: ['pb-2'] },
+  'bf-1': { updatedLabel: 'Yesterday', freshness: 'fresh', popular: true, recommended: true, pinned: true, relatedIds: ['tm-1', 'pb-1'] },
+  'bf-2': { updatedLabel: '6 days ago', freshness: 'fresh', popular: true, recommended: true, pinned: true, relatedIds: ['tm-1', 'bf-1'] },
+  'bf-3': { updatedLabel: '3 weeks ago', freshness: 'current', popular: false, recommended: false, pinned: false, relatedIds: ['bf-1'] },
+  'ao-1': { updatedLabel: '1 week ago', freshness: 'current', popular: true, recommended: false, pinned: false, relatedIds: ['pb-3', 'ao-2'] },
+  'ao-2': { updatedLabel: '12 days ago', freshness: 'current', popular: false, recommended: true, pinned: false, relatedIds: ['tm-2', 'ao-1'] },
+  'ao-3': { updatedLabel: '3 days ago', freshness: 'fresh', popular: true, recommended: true, pinned: false, relatedIds: ['ao-1'] },
+};
+
+export function withHubMeta(item) {
+  const meta = hubResourceMeta[item.id] || {
+    updatedLabel: 'Recently',
+    freshness: 'current',
+    popular: false,
+    recommended: false,
+    pinned: false,
+    relatedIds: [],
+  };
+  return { ...item, ...meta };
+}
+
+export function getPopularResources() {
+  return allResources().filter(r => r.popular);
+}
+
+export function getRecommendedResources() {
+  return allResources().filter(r => r.recommended);
+}
+
+export function getRecentlyUpdatedResources() {
+  return [...allResources()].sort((a, b) => {
+    const order = { fresh: 0, current: 1, aging: 2 };
+    return (order[a.freshness] ?? 1) - (order[b.freshness] ?? 1);
+  });
+}
+
+export function getPinnedResources() {
+  return allResources().filter(r => r.pinned);
+}
+
+export function getRelatedResources(id) {
+  const item = allResources().find(r => r.id === id);
+  if (!item?.relatedIds?.length) return [];
+  return item.relatedIds.map(rid => allResources().find(r => r.id === rid)).filter(Boolean);
+}
 
 export function getKnowledgeItem(id, uploadedSourceFiles = [], uploadedFiles = []) {
   const fromResources = allResources().find(r => r.id === id);
@@ -312,12 +432,129 @@ export function getKnowledgeItem(id, uploadedSourceFiles = [], uploadedFiles = [
   if (fromConnections) return { ...fromConnections, title: fromConnections.code, type: 'connection' };
 
   const fromSource = uploadedSourceFiles.find(f => f.id === id);
-  if (fromSource) return fromSource;
+  if (fromSource) return withHubMeta(fromSource);
 
   const fromUpload = uploadedFiles.find(f => f.id === id);
-  if (fromUpload) return fromUpload;
+  if (fromUpload) return withHubMeta(fromUpload);
 
   return null;
+}
+
+const INSIGHT_TYPE_LABELS = {
+  playbook: 'Playbook',
+  template: 'Template',
+  brand: 'Brand strategy',
+  accelerator: 'Innovation story',
+  source: 'Data source',
+  connection: 'Live data feed',
+};
+
+function insightTags(resource, max = 3) {
+  return (resource.tags || resource.aiTags || []).slice(0, max).filter(Boolean);
+}
+
+export function generateMarketingSummary(resource) {
+  if (!resource) return null;
+
+  const type = resource.type || 'resource';
+  const typeLabel = INSIGHT_TYPE_LABELS[type] || 'Resource';
+  const tags = insightTags(resource);
+  const tagLine = tags.length ? tags.join(' · ') : '';
+  const core = resource.summary || resource.description || resource.aiDescription || '';
+
+  let headline = '';
+  let highlights = [];
+  let whyItMatters = '';
+  let bestFor = '';
+  let nextStep = '';
+
+  switch (type) {
+    case 'playbook':
+      headline = `Your playbook for moving from idea to market — fast`;
+      highlights = [
+        'Step-by-step guidance your whole team can follow',
+        'Ready-made frameworks — no blank-page stress',
+        tagLine ? `Focused on ${tagLine}` : 'Grounded in TB4L best practice',
+      ];
+      whyItMatters = core || 'Cuts planning time and helps teams align on one clear activation story before launch.';
+      bestFor = 'Brand managers, market leads, and accelerator owners';
+      nextStep = 'Add to chat and ask how to tailor this playbook to your brand.';
+      break;
+
+    case 'template':
+      headline = `Start strong — don’t build from scratch`;
+      highlights = [
+        'Pre-structured format designed for TB4L workflows',
+        'Easy to share with stakeholders and agencies',
+        tagLine ? `Ideal for ${tagLine} workstreams` : 'Saves hours in workshops and reviews',
+      ];
+      whyItMatters = core || 'Gives your team a polished starting point so you spend time on strategy, not formatting.';
+      bestFor = 'Strategists, brand planners, and innovation leads';
+      nextStep = 'Open in chat and ask for help filling this in for your project.';
+      break;
+
+    case 'brand':
+      headline = resource.brand
+        ? `${resource.brand} — strategic direction you can act on today`
+        : `Brand strategy built for real-world activation`;
+      highlights = [
+        resource.demandSpace ? `Demand space: ${resource.demandSpace}` : 'Clear consumer tension and brand role',
+        resource.country ? `Markets: ${resource.country}` : 'Market-ready narrative and proof points',
+        resource.year ? `Planning horizon: ${resource.year}` : 'Actionable implications for campaigns',
+      ];
+      whyItMatters = core || 'Connects brand purpose to the choices your team makes in media, retail, and innovation.';
+      bestFor = 'Brand directors, market teams, and agency partners';
+      nextStep = 'Use in chat to draft briefs, decks, or activation ideas from this strategy.';
+      break;
+
+    case 'accelerator':
+      headline = `Innovation in action — learn from what worked`;
+      highlights = [
+        'Real cohort output with measurable impact',
+        tagLine ? `Themes: ${tagLine}` : 'Inspiration for your next TB4L sprint',
+        'Story-ready proof points for stakeholders',
+      ];
+      whyItMatters = core || 'Shows how TB4L thinking turns into products and programmes that scale.';
+      bestFor = 'Innovation teams, accelerator leads, and leadership storytelling';
+      nextStep = 'Ask chat how to adapt this approach to your category or market.';
+      break;
+
+    case 'source':
+      headline = `Smarter decisions start with the right data`;
+      highlights = [
+        resource.groupLabel ? `${resource.groupLabel} — ready for analysis` : 'Structured source file for TB4L Chat',
+        resource.brand ? `Brand lens: ${resource.brand}` : 'Tagged for fast discovery',
+        resource.market || resource.country ? `Market: ${resource.market || resource.country}` : 'Connects to your live knowledge base',
+      ];
+      whyItMatters = core || 'Keeps your insights grounded in the files your team actually trusts.';
+      bestFor = 'Insights analysts, brand teams, and chat power users';
+      nextStep = 'Add to chat and ask questions grounded in this file.';
+      break;
+
+    default:
+      headline = resource.title ? `What you need to know about ${resource.title}` : 'Quick insight at a glance';
+      highlights = [
+        core ? core.split('.').filter(Boolean)[0]?.trim() + '.' : resource.description,
+        tagLine ? `Tagged: ${tagLine}` : 'Curated for TB4L teams',
+        'Ready to use in chat or share with colleagues',
+      ].filter(Boolean);
+      whyItMatters = core || resource.description || 'Helps your team find answers faster without digging through folders.';
+      bestFor = 'Anyone exploring TB4L Hub resources';
+      nextStep = 'Add to chat or bookmark for later.';
+  }
+
+  if (resource.popular) highlights.push('Trending with teams this week');
+  if (resource.pinned) highlights.push('Pinned as a strategic reference');
+
+  return {
+    headline,
+    tagline: resource.description || resource.aiDescription || '',
+    highlights: highlights.filter(Boolean).slice(0, 4),
+    whyItMatters,
+    bestFor,
+    nextStep,
+    typeLabel,
+  };
 }
 
 export const achievementsList = [

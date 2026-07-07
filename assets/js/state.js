@@ -8,6 +8,8 @@ const defaultState = {
   uploadedFiles: [],
   uploadedSourceFiles: [],
   firstVisit: true,
+  bookmarks: [],
+  hubOnboardingDismissed: false,
 };
 
 let state = loadState();
@@ -51,12 +53,12 @@ export function getKnowledgeFiles() {
 }
 
 export function addUploadedFile(file) {
-  state.uploadedFiles.push(file);
+  state.uploadedFiles.push({ ...file, userUploaded: true });
   persist();
 }
 
 export function addUploadedSourceFile(file) {
-  state.uploadedSourceFiles.push(file);
+  state.uploadedSourceFiles.push({ ...file, userUploaded: true });
   persist();
 }
 
@@ -66,6 +68,37 @@ export function getUploadedFiles() {
 
 export function getUploadedSourceFiles() {
   return [...state.uploadedSourceFiles];
+}
+
+export function isUserUploadedFile(id) {
+  return state.uploadedFiles.some(f => f.id === id)
+    || state.uploadedSourceFiles.some(f => f.id === id);
+}
+
+function cleanupFileReferences(id) {
+  const knowledgeIdx = state.knowledgeFiles.indexOf(id);
+  if (knowledgeIdx >= 0) state.knowledgeFiles.splice(knowledgeIdx, 1);
+
+  const bookmarkIdx = state.bookmarks.indexOf(id);
+  if (bookmarkIdx >= 0) state.bookmarks.splice(bookmarkIdx, 1);
+}
+
+export function removeUploadedFile(id) {
+  const idx = state.uploadedFiles.findIndex(f => f.id === id);
+  if (idx < 0) return false;
+  state.uploadedFiles.splice(idx, 1);
+  cleanupFileReferences(id);
+  persist();
+  return true;
+}
+
+export function removeUploadedSourceFile(id) {
+  const idx = state.uploadedSourceFiles.findIndex(f => f.id === id);
+  if (idx < 0) return false;
+  state.uploadedSourceFiles.splice(idx, 1);
+  cleanupFileReferences(id);
+  persist();
+  return true;
 }
 
 export function getActiveSourceCount() {
@@ -113,4 +146,29 @@ export function markFirstVisitDone() {
 
 export function isFirstVisit() {
   return state.firstVisit;
+}
+
+export function toggleBookmark(id) {
+  const idx = state.bookmarks.indexOf(id);
+  if (idx >= 0) state.bookmarks.splice(idx, 1);
+  else state.bookmarks.push(id);
+  persist();
+  return state.bookmarks;
+}
+
+export function isBookmarked(id) {
+  return state.bookmarks.includes(id);
+}
+
+export function getBookmarks() {
+  return [...state.bookmarks];
+}
+
+export function dismissHubOnboarding() {
+  state.hubOnboardingDismissed = true;
+  persist();
+}
+
+export function isHubOnboardingDismissed() {
+  return state.hubOnboardingDismissed;
 }

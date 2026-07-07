@@ -42,7 +42,23 @@
     </div>
   </header>
 
-  <main id="app" class="app-main" role="main"></main>
+  <main id="app" class="app-main" role="main">
+    <div class="startup-shell" id="startup-shell">
+      <div class="startup-card glass">
+        <div class="startup-spinner" aria-hidden="true"></div>
+        <h1>Loading TB4L…</h1>
+        <p class="startup-hint">Starting the experience.</p>
+        <div class="startup-fallback" hidden>
+          <p><strong>The page looks empty?</strong> This site needs the local server — do not open <code>index.html</code> directly.</p>
+          <ol>
+            <li>Open the <code>tb4l-site</code> folder</li>
+            <li>Double-click <strong>START-SITE.bat</strong></li>
+            <li>Visit <a href="http://localhost:5500">http://localhost:5500</a></li>
+          </ol>
+        </div>
+      </div>
+    </div>
+  </main>
 
   <footer class="site-footer" id="site-footer">
     <div class="footer-inner">
@@ -76,6 +92,34 @@
     <div class="modal-body" id="preview-body"></div>
   </dialog>
 
+  <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+  <aside class="preview-drawer" id="preview-drawer" aria-hidden="true" aria-label="Quick preview">
+    <div class="drawer-header">
+      <div>
+        <span class="drawer-eyebrow" id="drawer-type">Resource</span>
+        <h2 id="drawer-title">Preview</h2>
+      </div>
+      <button type="button" class="btn-icon" id="drawer-close" aria-label="Close preview">&times;</button>
+    </div>
+    <div class="drawer-body" id="drawer-body"></div>
+    <div class="drawer-footer" id="drawer-footer"></div>
+  </aside>
+
+  <script>
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        var app = document.getElementById('app');
+        var shell = document.getElementById('startup-shell');
+        if (!app || !shell) return;
+        if (!app.querySelector('.hero, .hub-layout, .chat-page')) {
+          var fb = shell.querySelector('.startup-fallback');
+          if (fb) fb.hidden = false;
+          var hint = shell.querySelector('.startup-hint');
+          if (hint) hint.textContent = 'Could not load the app.';
+        }
+      }, 2000);
+    });
+  </script>
   <script type="module" src="assets/js/app.js"></script>
 </body>
 </html>

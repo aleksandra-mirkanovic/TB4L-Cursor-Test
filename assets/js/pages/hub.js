@@ -2,19 +2,25 @@ import {
   playbooks, templates, brandFiles, acceleratorOutputs,
   trainingSessions, glossary, faqs, team,
   directConnections, sourceFileGroups, getKnowledgeItem,
+  generateAITags, searchHubWithAI, allResources,
+  getPopularResources, getRecommendedResources, getRecentlyUpdatedResources,
+  getPinnedResources, getRelatedResources, withHubMeta,
+  generateMarketingSummary,
 } from '../data/demo-data.js';
 import {
   toggleKnowledge, isKnowledgeSelected, getKnowledgeFiles,
   addUploadedFile, getUploadedFiles, addUploadedSourceFile, getUploadedSourceFiles,
+  toggleBookmark, isBookmarked, getBookmarks,
+  dismissHubOnboarding, isHubOnboardingDismissed,
+  isUserUploadedFile, removeUploadedFile, removeUploadedSourceFile,
 } from '../state.js';
 import { checkAchievements, trackHubSection } from '../achievements.js';
 
-const hubSections = [
+const hubNavBrowse = [
+  { id: 'home', icon: '✨', label: 'Hub Home' },
   { id: 'playbooks', icon: '📖', label: 'Playbooks' },
   { id: 'templates', icon: '📋', label: 'Templates' },
-  { id: 'sources', icon: '🔌', label: 'Sources' },
   { id: 'training', icon: '🎓', label: 'TB4L Training' },
-  { id: 'brand', icon: '🎨', label: 'Brand & Strategy' },
   { id: 'accelerator', icon: '🚀', label: 'Accelerator Outputs' },
   { id: 'glossary', icon: '📕', label: 'TB4L Glossary' },
   { id: 'faqs', icon: '❓', label: 'FAQs' },
@@ -22,13 +28,24 @@ const hubSections = [
   { id: 'support', icon: '🛠️', label: 'Support' },
 ];
 
-let currentSection = 'playbooks';
+const hubNavUpload = [
+  { id: 'sources', icon: '🔌', label: 'Sources', uploadHint: 'Data & research files' },
+  { id: 'brand', icon: '🎨', label: 'Brand & Strategy', uploadHint: 'Brand strategy files' },
+];
+
+const hubSections = [...hubNavBrowse, ...hubNavUpload];
+
+let currentSection = 'home';
 let searchQuery = '';
 let uploadedBrandFiles = [];
 let activeFileGroup = null;
 let showUploadForm = false;
+let hubAiResults = null;
+let hubAiQuery = '';
+let hubListFilter = 'all';
+let deleteUploadListenerBound = false;
 
-export function renderHub(section = 'playbooks') {
+export function renderHub(section = 'home') {
   currentSection = section;
   const knowledgeIds = getKnowledgeFiles();
   const knowledgeItems = knowledgeIds
@@ -40,15 +57,21 @@ export function renderHub(section = 'playbooks') {
   return `
     <div class="hub-layout">
       <nav class="hub-nav glass" aria-label="Hub sections">
-        ${hubSections.map(s => `
-          <button class="hub-nav-item ${s.id === currentSection ? 'active' : ''}" data-hub-section="${s.id}">
-            <span class="hub-nav-icon">${s.icon}</span>
-            ${s.label}
-          </button>
-        `).join('')}
+        <div class="hub-nav-group">
+          <span class="hub-nav-group-label">Browse</span>
+          ${hubNavBrowse.map(s => renderHubNavItem(s)).join('')}
+        </div>
+        <div class="hub-nav-divider" aria-hidden="true"></div>
+        <div class="hub-nav-group hub-nav-group-upload">
+          <span class="hub-nav-group-label">Upload your files</span>
+          <p class="hub-nav-upload-note">Only these two sections accept uploads</p>
+          ${hubNavUpload.map(s => renderHubNavItem(s, { upload: true })).join('')}
+        </div>
       </nav>
 
       <div class="hub-content">
+        ${renderHubAIBar()}
+        ${hubAiResults ? renderHubAIResults() : ''}
         <div id="hub-section-content">
           ${renderSectionContent(currentSection)}
         </div>
@@ -69,10 +92,321 @@ export function renderHub(section = 'playbooks') {
   `;
 }
 
+function getUploadCounts() {
+  return {
+    sources: getUploadedSourceFiles().length,
+    brand: getUploadedFiles().length,
+  };
+}
+
+function renderHubNavItem(section, { upload = false } = {}) {
+  const counts = getUploadCounts();
+  const count = section.id === 'sources' ? counts.sources : section.id === 'brand' ? counts.brand : 0;
+
+  return `
+    <button
+      type="button"
+      class="hub-nav-item ${upload ? 'hub-nav-item-upload' : ''} ${section.id === currentSection ? 'active' : ''}"
+      data-hub-section="${section.id}"
+    >
+      <span class="hub-nav-icon">${section.icon}</span>
+      <span class="hub-nav-text">
+        <span class="hub-nav-label">${section.label}</span>
+        ${upload && section.uploadHint ? `<span class="hub-nav-sublabel">${section.uploadHint}</span>` : ''}
+      </span>
+      ${upload ? '<span class="hub-nav-upload-badge">Upload</span>' : ''}
+      ${upload && count ? `<span class="hub-nav-count">${count}</span>` : ''}
+    </button>
+  `;
+}
+
+function renderReadOnlyNotice() {
+  return `
+    <div class="hub-readonly-notice" role="note">
+      <span class="hub-readonly-icon" aria-hidden="true">📚</span>
+      <div class="hub-readonly-copy">
+        <strong>Curated library — browse only</strong>
+        <p>Want to add your own files? Upload in
+          <button type="button" class="hub-readonly-link" data-hub-section="sources">Sources</button>
+          or
+          <button type="button" class="hub-readonly-link" data-hub-section="brand">Brand &amp; Strategy</button>.
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+function renderUploadZoneHero({ title, description, ctaLabel, ctaTarget, icon = '📤' }) {
+  return `
+    <div class="hub-upload-hero glass">
+      <div class="hub-upload-hero-badge">Upload zone</div>
+      <div class="hub-upload-hero-body">
+        <span class="hub-upload-hero-icon" aria-hidden="true">${icon}</span>
+        <div>
+          <h3>${title}</h3>
+          <p>${description}</p>
+        </div>
+      </div>
+      ${ctaLabel && ctaTarget ? `<button type="button" class="btn btn-primary btn-sm" data-jump-upload-tab="${ctaTarget}">${ctaLabel}</button>` : ''}
+    </div>
+  `;
+}
+
+function renderHubAIBar() {
+  return `
+    <div class="hub-ai-bar glass">
+      <div class="hub-ai-browse">
+        <span class="hub-ai-icon" aria-hidden="true">✨</span>
+        <input
+          type="text"
+          class="hub-ai-input"
+          id="hub-ai-search"
+          placeholder="Describe what you're looking for — e.g. Dove brand strategy UK"
+          value="${hubAiQuery}"
+        />
+        <button type="button" class="btn btn-primary btn-sm" id="hub-ai-search-btn">AI Browse</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderHubAIResults() {
+  if (!hubAiResults?.length) {
+    return `
+      <div class="hub-ai-results glass">
+        <p class="hub-ai-results-msg">No matches found. Try different keywords.</p>
+        <button type="button" class="btn btn-ghost btn-sm" id="hub-ai-clear">Clear results</button>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="hub-ai-results glass">
+      <div class="hub-ai-results-header">
+        <p class="hub-ai-results-msg">✨ AI found <strong>${hubAiResults.length}</strong> resource${hubAiResults.length > 1 ? 's' : ''} for "${hubAiQuery}"</p>
+        <button type="button" class="btn btn-ghost btn-sm" id="hub-ai-clear">Clear</button>
+      </div>
+      <div class="hub-ai-results-grid">
+        ${hubAiResults.map(item => `
+          <div class="card hub-ai-result-card" data-resource-id="${item.id}">
+            <span class="resource-type type-${item.type || 'playbook'}">${item.type || 'resource'}</span>
+            <h4>${item.title}</h4>
+            <p>${item.description}</p>
+            <div class="resource-tags">${(item.tags || []).slice(0, 4).map(t => `<span class="tag">${t}</span>`).join('')}</div>
+            <div class="resource-actions">
+              <button type="button" class="btn btn-ghost btn-sm" data-drawer="${item.id}">Quick view</button>
+              <button type="button" class="btn btn-secondary btn-sm" data-summary="${item.id}">Key insights</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function getAllBrowsableResources() {
+  return [
+    ...allResources(),
+    ...getUploadedFiles().map(withHubMeta),
+    ...getUploadedSourceFiles().map(withHubMeta),
+  ];
+}
+
+function renderHubOnboarding() {
+  if (isHubOnboardingDismissed()) return '';
+  return `
+    <div class="hub-onboarding glass" id="hub-onboarding">
+      <div class="hub-onboarding-icon">✨</div>
+      <div class="hub-onboarding-copy">
+        <h3>Welcome to TB4L Hub</h3>
+        <p><strong>Searching?</strong> Use AI Browse, popular picks, and saved items. <strong>Maintaining?</strong> Pin strategic docs and track freshness at a glance.</p>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" id="hub-onboarding-dismiss">Got it</button>
+    </div>
+  `;
+}
+
+function renderFreshnessBadge(item) {
+  if (!item.updatedLabel) return '';
+  const labels = { fresh: 'Fresh', current: 'Current', aging: 'Review' };
+  return `
+    <span class="freshness-badge freshness-${item.freshness || 'current'}" title="Updated ${item.updatedLabel}">
+      <span class="freshness-dot"></span>${labels[item.freshness] || 'Current'} · ${item.updatedLabel}
+    </span>
+  `;
+}
+
+function canDeleteUpload(item) {
+  return Boolean(item?.id && (item.userUploaded || isUserUploadedFile(item.id)));
+}
+
+function deleteUserUpload(id) {
+  if (!isUserUploadedFile(id)) return;
+
+  const resource = getResourceById(id);
+  const name = resource?.title || 'this file';
+  if (!confirm(`Remove "${name}"? This cannot be undone.`)) return;
+
+  const isSource = getUploadedSourceFiles().some(f => f.id === id);
+  const removed = isSource ? removeUploadedSourceFile(id) : removeUploadedFile(id);
+  if (!removed) return;
+
+  uploadedBrandFiles = uploadedBrandFiles.filter(f => f.id !== id);
+  closePreviewDrawer();
+  document.getElementById('preview-modal')?.close();
+  showDemoToast('🗑️ File removed');
+  rerenderHub();
+}
+
+function renderResourceCard(item, typeClass, { compact = false } = {}) {
+  const selected = isKnowledgeSelected(item.id);
+  const bookmarked = isBookmarked(item.id);
+  const typeLabel = item.type || typeClass;
+  const displayTags = (item.aiTags || item.tags || []).slice(0, compact ? 2 : 6);
+
+  return `
+    <article class="card resource-card hub-card ${selected ? 'selected' : ''} ${compact ? 'hub-card-compact' : ''}" data-resource-id="${item.id}">
+      <div class="hub-card-top">
+        <span class="resource-type type-${typeLabel}">${typeLabel}</span>
+        ${item.popular ? '<span class="hub-signal hub-signal-popular">Popular this week</span>' : ''}
+        ${item.pinned ? '<span class="hub-signal hub-signal-pinned">Pinned</span>' : ''}
+        ${item.recommended && !item.popular ? '<span class="hub-signal hub-signal-rec">Recommended</span>' : ''}
+        <div class="hub-card-actions-top">
+          <button type="button" class="hub-icon-btn ${bookmarked ? 'active' : ''}" data-bookmark="${item.id}" title="${bookmarked ? 'Remove bookmark' : 'Save for later'}">${bookmarked ? '★' : '☆'}</button>
+          <button type="button" class="hub-icon-btn select-checkbox" data-toggle-knowledge="${item.id}" title="Use in chat">${selected ? '✓' : '+'}</button>
+        </div>
+      </div>
+      <h4>${item.title}</h4>
+      <p>${item.description}</p>
+      ${renderFreshnessBadge(item)}
+      ${item.aiDescription && !compact ? `<p class="ai-file-hint">${item.aiDescription}</p>` : ''}
+      <div class="resource-tags">${displayTags.map(t => `<span class="tag">${t}</span>`).join('')}</div>
+      <div class="resource-actions">
+        <button type="button" class="btn btn-ghost btn-sm" data-drawer="${item.id}">Quick view</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-summary="${item.id}">Key insights</button>
+        ${canDeleteUpload(item) ? `<button type="button" class="btn btn-ghost btn-sm btn-danger-text" data-delete-upload="${item.id}">Remove</button>` : ''}
+      </div>
+    </article>
+  `;
+}
+
+function renderContentRail(title, subtitle, items, emptyMsg) {
+  if (!items.length) {
+    return `
+      <section class="hub-rail">
+        <div class="hub-rail-header"><div><h3>${title}</h3><p>${subtitle}</p></div></div>
+        <div class="hub-empty-inline">${emptyMsg}</div>
+      </section>
+    `;
+  }
+  return `
+    <section class="hub-rail">
+      <div class="hub-rail-header">
+        <div><h3>${title}</h3><p>${subtitle}</p></div>
+      </div>
+      <div class="hub-rail-scroll">
+        ${items.map(item => renderResourceCard(item, item.type, { compact: true })).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderHubHome() {
+  const bookmarks = getBookmarks()
+    .map(id => getResourceById(id))
+    .filter(Boolean);
+
+  return `
+    ${renderHubOnboarding()}
+    <div class="hub-home-header">
+      <h2>Your TB4L knowledge hub</h2>
+      <p>Find answers, bookmark resources, and keep strategic content fresh — all in one place.</p>
+    </div>
+    <div class="hub-home-panels">
+      ${renderContentRail('Recommended for you', 'Curated based on your role and recent activity', getRecommendedResources().slice(0, 4), 'No recommendations yet — explore playbooks to get started.')}
+      ${renderContentRail('Popular this week', 'What teams are opening most across TB4L', getPopularResources().slice(0, 4), 'Popularity data will appear as the community engages.')}
+      ${renderContentRail('Recently updated', 'Fresh knowledge with clear freshness signals', getRecentlyUpdatedResources().slice(0, 4), 'No recent updates in this view.')}
+      ${renderContentRail('Saved for later', 'Your bookmarked resources', bookmarks, 'Bookmark resources with ☆ to build your personal reading list.')}
+      ${renderContentRail('Pinned strategic documents', 'Core references maintained by your TB4L team', getPinnedResources(), 'No pinned documents yet. Pin key playbooks and brand files for everyone.')}
+      ${renderContentRail('Needs attention', 'Content approaching review — keep knowledge trustworthy', getRecentlyUpdatedResources().filter(r => r.freshness !== 'fresh').slice(0, 4), 'All strategic content is current.')}
+      <section class="hub-upload-destinations glass">
+        <div class="hub-upload-destinations-header">
+          <span class="hub-upload-hero-badge">Where to upload</span>
+          <h3>Add your own files to the Hub</h3>
+          <p>Only two sections accept uploads — everything else is curated TB4L content.</p>
+        </div>
+        <div class="hub-upload-destination-grid">
+          <button type="button" class="hub-upload-destination-card" data-hub-section="sources">
+            <span class="hub-upload-destination-icon">🔌</span>
+            <strong>Sources</strong>
+            <span>Research, tracker, and data files</span>
+            <span class="hub-nav-upload-badge">Upload</span>
+          </button>
+          <button type="button" class="hub-upload-destination-card" data-hub-section="brand">
+            <span class="hub-upload-destination-icon">🎨</span>
+            <strong>Brand &amp; Strategy</strong>
+            <span>Brand decks, strategy docs, briefs</span>
+            <span class="hub-nav-upload-badge">Upload</span>
+          </button>
+        </div>
+      </section>
+      <section class="hub-maintain-cta glass">
+        <div>
+          <h3>Maintain the knowledge base</h3>
+          <p>Upload brand files, tag sources with AI, and keep playbooks fresh for your team.</p>
+        </div>
+        <div class="hub-maintain-actions">
+          <button type="button" class="btn btn-secondary btn-sm" data-hub-section="brand">Upload brand file</button>
+          <button type="button" class="btn btn-primary btn-sm" data-hub-section="sources">Manage sources</button>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function renderStickyFilters(sectionLabel) {
+  return `
+    <div class="hub-sticky-toolbar glass">
+      <div class="hub-filter-chips" role="tablist" aria-label="Filter ${sectionLabel}">
+        <button type="button" class="hub-filter-chip ${hubListFilter === 'all' ? 'active' : ''}" data-hub-filter="all">All</button>
+        <button type="button" class="hub-filter-chip ${hubListFilter === 'bookmarked' ? 'active' : ''}" data-hub-filter="bookmarked">Saved</button>
+        <button type="button" class="hub-filter-chip ${hubListFilter === 'fresh' ? 'active' : ''}" data-hub-filter="fresh">Recently updated</button>
+        <button type="button" class="hub-filter-chip ${hubListFilter === 'popular' ? 'active' : ''}" data-hub-filter="popular">Popular</button>
+        <button type="button" class="hub-filter-chip ${hubListFilter === 'pinned' ? 'active' : ''}" data-hub-filter="pinned">Pinned</button>
+      </div>
+      <input type="search" class="search-input hub-sticky-search" placeholder="Search ${sectionLabel.toLowerCase()}..." value="${searchQuery}" id="hub-search" />
+    </div>
+  `;
+}
+
+function applyListFilter(items) {
+  let list = filterItems(items);
+  switch (hubListFilter) {
+    case 'bookmarked': list = list.filter(i => isBookmarked(i.id)); break;
+    case 'fresh': list = list.filter(i => i.freshness === 'fresh'); break;
+    case 'popular': list = list.filter(i => i.popular); break;
+    case 'pinned': list = list.filter(i => i.pinned); break;
+    default: break;
+  }
+  return list;
+}
+
+function renderEmptyState(title, message, actionLabel, actionSection) {
+  return `
+    <div class="hub-empty-state">
+      <div class="hub-empty-icon">🔍</div>
+      <h3>${title}</h3>
+      <p>${message}</p>
+      ${actionSection ? `<button type="button" class="btn btn-secondary btn-sm" data-hub-section="${actionSection}">${actionLabel}</button>` : ''}
+    </div>
+  `;
+}
+
 function renderSectionContent(section) {
   trackHubSection(section);
 
   switch (section) {
+    case 'home': return renderHubHome();
     case 'playbooks': return renderResourceSection('Playbooks', 'Proven methodologies and process guides for TB4L execution.', playbooks, 'playbook');
     case 'templates': return renderResourceSection('Templates', 'Ready-to-use frameworks and document templates for your TB4L projects.', templates, 'template');
     case 'sources': return renderSources();
@@ -88,43 +422,31 @@ function renderSectionContent(section) {
 }
 
 function renderResourceSection(title, desc, items, typeClass) {
-  const filtered = filterItems(items);
+  const enriched = items.map(withHubMeta);
+  const filtered = applyListFilter(enriched);
 
   return `
+    ${renderReadOnlyNotice()}
     <div class="hub-section-header">
       <h2>${title}</h2>
       <p>${desc}</p>
     </div>
-    <div class="hub-toolbar">
-      <input type="search" class="search-input" placeholder="Search ${title.toLowerCase()}..." value="${searchQuery}" id="hub-search" />
-    </div>
+    ${renderStickyFilters(title)}
     <div class="resource-grid">
       ${filtered.map(item => renderResourceCard(item, typeClass)).join('')}
     </div>
-    ${filtered.length === 0 ? '<p style="color:var(--text-muted);text-align:center;padding:40px">No results found.</p>' : ''}
+    ${filtered.length === 0 ? renderEmptyState(
+      hubListFilter === 'all' ? 'No results' : `No ${hubListFilter} items`,
+      hubListFilter === 'all'
+        ? 'Try a different search term or use AI Browse above.'
+        : 'Try another filter or save resources with ☆ for quick access.',
+      'Explore Hub Home',
+      'home'
+    ) : ''}
   `;
 }
 
-function renderResourceCard(item, typeClass) {
-  const selected = isKnowledgeSelected(item.id);
-  const typeLabel = item.type || typeClass;
-
-  return `
-    <div class="card resource-card ${selected ? 'selected' : ''}" data-resource-id="${item.id}">
-      <div class="select-checkbox" title="Use as chat knowledge">${selected ? '✓' : ''}</div>
-      <span class="resource-type type-${typeLabel}">${typeLabel}</span>
-      <h4>${item.title}</h4>
-      <p>${item.description}</p>
-      <div class="resource-tags">
-        ${(item.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}
-      </div>
-      <div class="resource-actions">
-        <button class="btn btn-ghost btn-sm" data-preview="${item.id}">Preview</button>
-        <button class="btn btn-secondary btn-sm" data-summary="${item.id}">Summary</button>
-      </div>
-    </div>
-  `;
-}
+/* legacy card placeholder removed */
 
 function renderActiveChatSources() {
   const ids = getKnowledgeFiles();
@@ -168,31 +490,41 @@ function renderSources() {
   const connectedCount = directConnections.filter(c => c.connected).length;
 
   return `
+    ${renderUploadZoneHero({
+      title: 'Upload data & research files here',
+      description: 'This is one of two upload zones in the Hub. Add tracker exports, research files, and source data — AI will tag them for chat.',
+      ctaLabel: 'Start uploading',
+      ctaTarget: 'files',
+      icon: '🔌',
+    })}
+
     <div class="hub-section-header">
       <h2>Sources</h2>
-      <p>Connect live data feeds and upload files for TB4L Chat. Active sources power AI responses in the background.</p>
+      <p>Live data feeds and uploaded files for TB4L Chat. Connect platforms or upload your own files below.</p>
     </div>
 
     ${renderActiveChatSources()}
 
     <div class="sources-tabs">
       <button class="sources-tab active" data-sources-tab="connections">Direct Connections</button>
-      <button class="sources-tab" data-sources-tab="files">Uploaded Files</button>
+      <button class="sources-tab sources-tab-upload" data-sources-tab="files">
+        Uploaded Files
+        <span class="sources-tab-upload-badge">Upload here</span>
+      </button>
     </div>
 
     <div id="sources-tab-connections" class="sources-panel">
       <div class="sources-summary glass">
         <span class="conn-stat"><strong>${connectedCount}</strong> of ${directConnections.length} connected</span>
-        <span class="conn-stat-hint">Select connected feeds to include in chat</span>
+        <span class="conn-stat-hint">Platform connection status — feeds sync automatically when connected</span>
       </div>
       <div class="connections-grid">
         ${directConnections.map(conn => {
-          const selected = isKnowledgeSelected(conn.id);
           const statusClass = conn.connected ? 'conn-live' : 'conn-offline';
           const statusLabel = conn.connected ? 'Connected' : 'Not connected';
 
           return `
-            <div class="card connection-card ${conn.connected ? '' : 'connection-disabled'} ${selected ? 'selected' : ''}" data-connection-id="${conn.id}" data-connected="${conn.connected}">
+            <div class="card connection-card ${conn.connected ? 'conn-active' : 'connection-disabled'}" data-connection-id="${conn.id}">
               <div class="connection-header">
                 <div class="connection-code">${conn.code}</div>
                 <span class="connection-status ${statusClass}">
@@ -202,21 +534,13 @@ function renderSources() {
               </div>
               <h4>${conn.name}</h4>
               <p>${conn.description}</p>
-              ${conn.connected ? `
-                <div class="connection-meta">
-                  <span>Last sync: ${conn.lastSync}</span>
-                  ${selected ? '<span class="tag tag-live">Active in chat</span>' : ''}
-                </div>
-                <button class="btn ${selected ? 'btn-disconnect-sm' : 'btn-primary'} btn-sm connection-toggle" data-toggle-conn="${conn.id}">
-                  ${selected ? 'Disconnect from Chat' : 'Add to Chat'}
-                </button>
-              ` : `
-                <div class="connection-meta offline-meta">
-                  <span>Connection not established</span>
-                </div>
-                <button class="btn btn-ghost btn-sm" disabled>Connect first</button>
-                <button class="btn btn-secondary btn-sm" data-request-conn="${conn.id}" style="margin-left:8px">Request Access</button>
-              `}
+              <div class="connection-meta ${conn.connected ? '' : 'offline-meta'}">
+                ${conn.connected
+                  ? `<span>Last sync: ${conn.lastSync}</span>`
+                  : `<span>Connection not established</span>
+                     <button type="button" class="btn btn-secondary btn-sm" data-request-conn="${conn.id}">Request Access</button>`
+                }
+              </div>
             </div>
           `;
         }).join('')}
@@ -235,9 +559,12 @@ function renderFilesPanel(uploadedSources) {
   const activeFiles = activeGroup ? uploadedSources.filter(f => f.groupId === activeGroup.id) : [];
 
   return `
-    <div class="files-panel-top">
-      <span class="files-count">${totalFiles} file${totalFiles !== 1 ? 's' : ''} uploaded</span>
-      <span class="files-hint">Pick a type below to upload or manage files</span>
+    <div class="files-panel-top files-panel-top-upload">
+      <div>
+        <span class="hub-upload-hero-badge">Upload here</span>
+        <span class="files-count">${totalFiles} file${totalFiles !== 1 ? 's' : ''} uploaded by you</span>
+      </div>
+      <span class="files-hint">Choose a file type below, then drag & drop or browse to upload</span>
     </div>
 
     <div class="file-types-grid">
@@ -276,7 +603,11 @@ function renderFilesPanel(uploadedSources) {
               </div>
               <input class="form-input" data-upload-name="${activeGroup.id}" placeholder="File name" />
             </div>
-            <textarea class="form-input upload-desc" data-upload-desc="${activeGroup.id}" rows="2" placeholder="What is this file about? (1–2 sentences for the AI)"></textarea>
+            <div class="ai-tags-preview" data-ai-preview="${activeGroup.id}" hidden>
+              <span class="sidebar-label">AI suggested tags</span>
+              <div class="ai-tags-chips" data-ai-tags="${activeGroup.id}"></div>
+            </div>
+            <textarea class="form-input upload-desc" data-upload-desc="${activeGroup.id}" rows="2" placeholder="AI will describe this file when you upload — or edit here"></textarea>
             <div class="source-upload-actions">
               <button class="btn btn-primary btn-sm" data-confirm-source="${activeGroup.id}">Save & Add to Chat</button>
               <button class="btn btn-ghost btn-sm" data-cancel-source="${activeGroup.id}">Cancel</button>
@@ -291,10 +622,18 @@ function renderFilesPanel(uploadedSources) {
                 <div class="file-row-main">
                   <strong>${f.title}</strong>
                   ${f.aiDescription ? `<span class="file-row-desc" title="${f.aiDescription}">${f.aiDescription}</span>` : ''}
+                  ${(f.aiTags || f.tags || []).length ? `
+                    <div class="file-row-tags">
+                      ${(f.aiTags || f.tags).map(t => `<span class="tag tag-sm">${t}</span>`).join('')}
+                    </div>
+                  ` : ''}
                 </div>
-                <button class="btn ${isKnowledgeSelected(f.id) ? 'btn-disconnect-sm' : 'btn-secondary'} btn-sm" data-toggle-source="${f.id}">
-                  ${isKnowledgeSelected(f.id) ? 'Disconnect' : 'Add to Chat'}
-                </button>
+                <div class="file-row-actions">
+                  <button class="btn ${isKnowledgeSelected(f.id) ? 'btn-disconnect-sm' : 'btn-secondary'} btn-sm" data-toggle-source="${f.id}">
+                    ${isKnowledgeSelected(f.id) ? 'Disconnect' : 'Add to Chat'}
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm btn-danger-text" data-delete-upload="${f.id}">Remove</button>
+                </div>
               </div>
             `).join('')}
           </div>
@@ -318,6 +657,7 @@ function renderFilesPanel(uploadedSources) {
                 ? `<button type="button" class="file-chip-disconnect" data-disconnect="${f.id}" title="Disconnect from chat">×</button>`
                 : `<button type="button" class="file-chip-toggle" data-toggle-source="${f.id}" title="Add to chat">+</button>`
               }
+              <button type="button" class="file-chip-delete" data-delete-upload="${f.id}" title="Remove file">🗑</button>
             </div>
           `).join('')}
         </div>
@@ -328,6 +668,7 @@ function renderFilesPanel(uploadedSources) {
 
 function renderTraining() {
   return `
+    ${renderReadOnlyNotice()}
     <div class="hub-section-header">
       <h2>TB4L Training</h2>
       <p>Upcoming workshops, masterclasses, and training sessions. Register to secure your spot.</p>
@@ -363,23 +704,33 @@ function renderTraining() {
 }
 
 function renderBrandStrategy() {
-  const allBrand = [...brandFiles, ...uploadedBrandFiles, ...getUploadedFiles()];
-
   return `
+    ${renderUploadZoneHero({
+      title: 'Upload brand & strategy files here',
+      description: 'This is one of two upload zones in the Hub. Drag and drop decks, briefs, and strategy documents — AI suggests tags automatically.',
+      icon: '🎨',
+    })}
+
     <div class="hub-section-header">
       <h2>Brand & Strategy</h2>
-      <p>Upload and manage brand strategy files. Tag them by brand, country, year, and demand space for easy discovery.</p>
+      <p>Your uploads appear below alongside curated brand files. Tag by brand, country, year, and demand space.</p>
     </div>
 
-    <div class="upload-zone" id="upload-zone">
+    <div class="upload-zone upload-zone-prominent" id="upload-zone">
+      <div class="upload-zone-label">Drop files here</div>
       <div class="upload-icon">📤</div>
       <h4>Upload Brand File</h4>
-      <p>Drag & drop or click to upload (demo — files are simulated)</p>
+      <p>Drag & drop or click to browse — PDF, PowerPoint, Word, or Excel</p>
       <input type="file" id="file-input" hidden accept=".pdf,.pptx,.docx,.xlsx" />
     </div>
 
     <div class="card" id="upload-form-card" style="display:none;margin-bottom:28px">
-      <h4 style="margin-bottom:16px">Tag Your Upload</h4>
+      <h4 style="margin-bottom:8px">Tag Your Upload</h4>
+      <p class="ai-upload-hint">AI will suggest brand, market, and file type when you select a file.</p>
+      <div class="ai-tags-preview" id="brand-ai-preview" hidden>
+        <span class="sidebar-label">AI suggested tags</span>
+        <div class="ai-tags-chips" id="brand-ai-tags"></div>
+      </div>
       <div class="upload-form">
         <div class="form-group">
           <label>File Name</label>
@@ -408,8 +759,8 @@ function renderBrandStrategy() {
       </div>
     </div>
 
-    <div class="hub-toolbar">
-      <input type="search" class="search-input" placeholder="Search brand files..." id="hub-search" />
+    <div class="hub-toolbar hub-sticky-toolbar glass">
+      <input type="search" class="search-input hub-sticky-search" placeholder="Search brand files..." id="hub-search" />
       <select class="filter-select" id="brand-filter">
         <option value="">All Brands</option>
         <option value="Dove">Dove</option>
@@ -419,7 +770,7 @@ function renderBrandStrategy() {
     </div>
 
     <div class="resource-grid">
-      ${filterItems(allBrand).map(item => renderResourceCard(item, 'brand')).join('')}
+      ${applyListFilter([...brandFiles, ...uploadedBrandFiles, ...getUploadedFiles()].map(withHubMeta)).map(item => renderResourceCard(item, 'brand')).join('')}
     </div>
   `;
 }
@@ -431,6 +782,7 @@ function renderGlossary() {
   );
 
   return `
+    ${renderReadOnlyNotice()}
     <div class="hub-section-header">
       <h2>TB4L Glossary</h2>
       <p>Key terms and definitions for the Think Big for Life framework.</p>
@@ -451,6 +803,7 @@ function renderGlossary() {
 
 function renderFaqs() {
   return `
+    ${renderReadOnlyNotice()}
     <div class="hub-section-header">
       <h2>Frequently Asked Questions</h2>
       <p>Common questions about TB4L, the platform, and how to get started.</p>
@@ -475,6 +828,7 @@ function renderTeam() {
   checkAchievements('team');
 
   return `
+    ${renderReadOnlyNotice()}
     <div class="hub-section-header">
       <h2>TB4L Team</h2>
       <p>Meet the people behind Think Big for Life. Reach out to the right person for your needs.</p>
@@ -498,6 +852,7 @@ function renderTeam() {
 
 function renderSupport() {
   return `
+    ${renderReadOnlyNotice()}
     <div class="hub-section-header">
       <h2>Support</h2>
       <p>Having technical issues? We're here to help. This is a demo — responses are simulated.</p>
@@ -559,8 +914,158 @@ function filterItems(items) {
   });
 }
 
+function renderMarketingSummaryHTML(resource, { compact = false } = {}) {
+  const insight = generateMarketingSummary(resource);
+  if (!insight) return '';
+
+  if (compact) {
+    return `
+      <div class="ai-insight-panel ai-insight-compact">
+        <div class="ai-insight-header">
+          <span class="ai-insight-badge">✨ Key insights</span>
+          <span class="ai-insight-type">${insight.typeLabel}</span>
+        </div>
+        <h3 class="ai-insight-headline">${insight.headline}</h3>
+        <ul class="ai-insight-list">${insight.highlights.slice(0, 2).map(h => `<li>${h}</li>`).join('')}</ul>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="ai-insight-panel">
+      <div class="ai-insight-header">
+        <span class="ai-insight-badge">✨ Key insights</span>
+        <span class="ai-insight-type">${insight.typeLabel}</span>
+      </div>
+      <h3 class="ai-insight-headline">${insight.headline}</h3>
+      ${insight.tagline ? `<p class="ai-insight-tagline">${insight.tagline}</p>` : ''}
+      <div class="ai-insight-section">
+        <h5>What you'll get</h5>
+        <ul class="ai-insight-list">${insight.highlights.map(h => `<li>${h}</li>`).join('')}</ul>
+      </div>
+      <div class="ai-insight-section ai-insight-why">
+        <h5>Why it matters</h5>
+        <p>${insight.whyItMatters}</p>
+      </div>
+      <div class="ai-insight-meta-grid">
+        <div class="ai-insight-meta-card">
+          <span class="ai-insight-meta-label">Best for</span>
+          <p>${insight.bestFor}</p>
+        </div>
+        <div class="ai-insight-meta-card ai-insight-next">
+          <span class="ai-insight-meta-label">Try this next</span>
+          <p>${insight.nextStep}</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function getResourceById(id) {
   return getKnowledgeItem(id, getUploadedSourceFiles(), [...uploadedBrandFiles, ...getUploadedFiles()]);
+}
+
+function showPreviewDrawer(resource) {
+  const drawer = document.getElementById('preview-drawer');
+  const backdrop = document.getElementById('drawer-backdrop');
+  const title = document.getElementById('drawer-title');
+  const type = document.getElementById('drawer-type');
+  const body = document.getElementById('drawer-body');
+  const footer = document.getElementById('drawer-footer');
+  if (!drawer || !body || !title) return;
+
+  const related = getRelatedResources(resource.id);
+
+  title.textContent = resource.title;
+  if (type) type.textContent = resource.type || 'Resource';
+
+  body.innerHTML = `
+    ${renderFreshnessBadge(resource)}
+    ${renderMarketingSummaryHTML(resource, { compact: true })}
+    <div class="preview-meta">${(resource.tags || []).map(t => `<span class="tag">${t}</span>`).join('')}</div>
+    ${related.length ? `
+      <div class="drawer-related">
+        <h4>Related resources</h4>
+        <div class="drawer-related-list">
+          ${related.map(r => `
+            <button type="button" class="drawer-related-item" data-drawer="${r.id}">
+              <span class="resource-type type-${r.type}">${r.type}</span>
+              <span>${r.title}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    ` : ''}
+  `;
+
+  footer.innerHTML = `
+    <button type="button" class="btn btn-ghost btn-sm" data-drawer-bookmark="${resource.id}">
+      ${isBookmarked(resource.id) ? '★ Saved' : '☆ Save for later'}
+    </button>
+    <button type="button" class="btn btn-secondary btn-sm" data-preview-select="${resource.id}">
+      ${isKnowledgeSelected(resource.id) ? '✓ In chat' : '+ Add to chat'}
+    </button>
+    <button type="button" class="btn btn-primary btn-sm" data-summary="${resource.id}">Full insights</button>
+    ${canDeleteUpload(resource) ? `<button type="button" class="btn btn-ghost btn-sm btn-danger-text" data-delete-upload="${resource.id}">Remove</button>` : ''}
+  `;
+
+  drawer.classList.add('open');
+  drawer.setAttribute('aria-hidden', 'false');
+  backdrop?.removeAttribute('hidden');
+  document.body.classList.add('drawer-open');
+  checkAchievements('preview');
+  bindDrawerEvents();
+}
+
+function closePreviewDrawer() {
+  document.getElementById('preview-drawer')?.classList.remove('open');
+  document.getElementById('preview-drawer')?.setAttribute('aria-hidden', 'true');
+  document.getElementById('drawer-backdrop')?.setAttribute('hidden', '');
+  document.body.classList.remove('drawer-open');
+}
+
+function bindDrawerEvents() {
+  document.getElementById('drawer-close')?.addEventListener('click', closePreviewDrawer, { once: true });
+  document.getElementById('drawer-backdrop')?.addEventListener('click', closePreviewDrawer, { once: true });
+
+  document.querySelectorAll('#drawer-body [data-drawer]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const resource = getResourceById(btn.dataset.drawer);
+      if (resource) showPreviewDrawer(resource);
+    });
+  });
+
+  document.querySelectorAll('#drawer-footer [data-drawer-bookmark]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleBookmark(btn.dataset.drawerBookmark);
+      showDemoToast(isBookmarked(btn.dataset.drawerBookmark) ? '★ Saved for later' : 'Removed bookmark');
+      const resource = getResourceById(btn.dataset.drawerBookmark);
+      if (resource) showPreviewDrawer(resource);
+      else rerenderHub();
+    });
+  });
+
+  document.querySelectorAll('#drawer-footer [data-preview-select]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toggleKnowledge(btn.dataset.previewSelect);
+      checkAchievements('select-knowledge');
+      showDemoToast('Added to TB4L Chat sources');
+      closePreviewDrawer();
+      rerenderHub();
+    });
+  });
+
+  document.querySelectorAll('#drawer-footer [data-summary]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const resource = getResourceById(btn.dataset.summary);
+      closePreviewDrawer();
+      if (resource) showPreview(resource, 'summary');
+    });
+  });
+
+  document.querySelectorAll('#drawer-footer [data-delete-upload]').forEach(btn => {
+    btn.addEventListener('click', () => deleteUserUpload(btn.dataset.deleteUpload));
+  });
 }
 
 function showPreview(resource, mode = 'preview') {
@@ -570,7 +1075,7 @@ function showPreview(resource, mode = 'preview') {
 
   if (!modal || !title || !body) return;
 
-  title.textContent = resource.title;
+  title.textContent = mode === 'summary' ? 'Key insights' : resource.title;
 
   const metaTags = [
     resource.brand && `Brand: ${resource.brand}`,
@@ -580,24 +1085,33 @@ function showPreview(resource, mode = 'preview') {
     ...(resource.tags || []),
   ].filter(Boolean);
 
-  body.innerHTML = `
+  body.innerHTML = mode === 'summary' ? `
+    <p class="ai-insight-modal-title">${resource.title}</p>
     <div class="preview-meta">
       ${metaTags.map(t => `<span class="tag">${t}</span>`).join('')}
     </div>
-    ${mode === 'summary' ? `
-      <div class="preview-summary">
-        <h4>AI Summary</h4>
-        <p>${resource.summary || resource.description}</p>
-      </div>
-    ` : ''}
+    ${renderMarketingSummaryHTML(resource)}
+    <div class="preview-actions">
+      <button class="btn btn-primary btn-sm" data-preview-select="${resource.id}">
+        ${isKnowledgeSelected(resource.id) ? '✓ In chat' : '+ Add to chat'}
+      </button>
+      <button class="btn btn-ghost btn-sm" data-preview-mode="document">View document</button>
+      ${canDeleteUpload(resource) ? `<button class="btn btn-ghost btn-sm btn-danger-text" data-delete-upload="${resource.id}">Remove</button>` : ''}
+      <button class="btn btn-secondary btn-sm" data-close-modal>Close</button>
+    </div>
+  ` : `
+    <div class="preview-meta">
+      ${metaTags.map(t => `<span class="tag">${t}</span>`).join('')}</div>
     <div class="preview-content">
-      ${(resource.preview || resource.description).replace(/\n/g, '<br/>').replace(/## (.*?)(<br\/>|$)/g, '<h4 style="color:var(--accent);margin:16px 0 8px">$1</h4>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}
+      ${(resource.preview || resource.description).replace(/\n/g, '<br/>').replace(/## (.*?)(<br\/>|$)/g, '<h4 style="color:var(--accent-text);margin:16px 0 8px">$1</h4>').replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}
     </div>
     <div class="preview-actions">
       <button class="btn btn-primary btn-sm" data-preview-select="${resource.id}">
         ${isKnowledgeSelected(resource.id) ? '✓ Selected as Knowledge' : '+ Use as Chat Knowledge'}
       </button>
-      <button class="btn btn-secondary btn-sm" data-close-modal>Close</button>
+      <button class="btn btn-secondary btn-sm" data-summary="${resource.id}">Key insights</button>
+      ${canDeleteUpload(resource) ? `<button class="btn btn-ghost btn-sm btn-danger-text" data-delete-upload="${resource.id}">Remove</button>` : ''}
+      <button class="btn btn-ghost btn-sm" data-close-modal>Close</button>
     </div>
   `;
 
@@ -606,6 +1120,18 @@ function showPreview(resource, mode = 'preview') {
     checkAchievements('select-knowledge');
     modal.close();
     rerenderHub();
+  });
+
+  body.querySelector('[data-summary]')?.addEventListener('click', () => {
+    showPreview(resource, 'summary');
+  });
+
+  body.querySelector('[data-preview-mode="document"]')?.addEventListener('click', () => {
+    showPreview(resource, 'preview');
+  });
+
+  body.querySelector('[data-delete-upload]')?.addEventListener('click', () => {
+    deleteUserUpload(resource.id);
   });
 
   body.querySelector('[data-close-modal]')?.addEventListener('click', () => modal.close());
@@ -622,16 +1148,34 @@ function rerenderHub() {
   }
 }
 
-export function initHub(section = 'playbooks') {
+export function initHub(section = 'home') {
   currentSection = section;
   uploadedBrandFiles = [];
+
+  document.getElementById('hub-onboarding-dismiss')?.addEventListener('click', () => {
+    dismissHubOnboarding();
+    document.getElementById('hub-onboarding')?.remove();
+  });
 
   document.querySelectorAll('[data-hub-section]').forEach(btn => {
     btn.addEventListener('click', () => {
       currentSection = btn.dataset.hubSection;
       searchQuery = '';
+      hubListFilter = 'all';
       rerenderHub();
       history.replaceState(null, '', `#/hub/${currentSection}`);
+    });
+  });
+
+  document.querySelectorAll('[data-hub-filter]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      hubListFilter = chip.dataset.hubFilter;
+      const content = document.getElementById('hub-section-content');
+      if (content) {
+        content.innerHTML = renderSectionContent(currentSection);
+        bindSectionEvents();
+        initHubFilterChips();
+      }
     });
   });
 
@@ -641,21 +1185,75 @@ export function initHub(section = 'playbooks') {
     if (content) {
       content.innerHTML = renderSectionContent(currentSection);
       bindSectionEvents();
+      initHubFilterChips();
     }
   });
 
   bindSectionEvents();
+  initHubAI();
+  initHubFilterChips();
+  initDrawerGlobal();
+  bindDeleteUploadEvents();
+}
+
+function initHubFilterChips() {
+  document.querySelectorAll('[data-hub-filter]').forEach(chip => {
+    chip.classList.toggle('active', chip.dataset.hubFilter === hubListFilter);
+  });
+}
+
+function initDrawerGlobal() {
+  document.getElementById('drawer-close')?.addEventListener('click', closePreviewDrawer);
+  document.getElementById('drawer-backdrop')?.addEventListener('click', closePreviewDrawer);
+}
+
+function initHubAI() {
+  document.getElementById('hub-ai-search-btn')?.addEventListener('click', runHubAIBrowse);
+  document.getElementById('hub-ai-search')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runHubAIBrowse();
+  });
+  document.getElementById('hub-ai-clear')?.addEventListener('click', () => {
+    hubAiResults = null;
+    hubAiQuery = '';
+    rerenderHub();
+  });
+}
+
+function runHubAIBrowse() {
+  hubAiQuery = document.getElementById('hub-ai-search')?.value?.trim() || '';
+  hubAiResults = searchHubWithAI(hubAiQuery, getAllBrowsableResources());
+  rerenderHub();
+  if (hubAiQuery) {
+    showDemoToast(hubAiResults.length
+      ? `✨ AI found ${hubAiResults.length} match${hubAiResults.length > 1 ? 'es' : ''}`
+      : 'No matches — try different keywords');
+  }
 }
 
 function bindSectionEvents() {
-  document.querySelectorAll('.resource-card').forEach(card => {
-    card.addEventListener('click', (e) => {
-      if (e.target.closest('[data-preview]') || e.target.closest('[data-summary]') || e.target.closest('.resource-actions')) return;
+  document.querySelectorAll('[data-bookmark]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleBookmark(btn.dataset.bookmark);
+      showDemoToast(isBookmarked(btn.dataset.bookmark) ? '★ Saved for later' : 'Removed from saved');
+      rerenderHub();
+    });
+  });
 
-      const id = card.dataset.resourceId;
-      toggleKnowledge(id);
+  document.querySelectorAll('[data-toggle-knowledge]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleKnowledge(btn.dataset.toggleKnowledge);
       checkAchievements('select-knowledge');
       rerenderHub();
+    });
+  });
+
+  document.querySelectorAll('[data-drawer]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const resource = getResourceById(btn.dataset.drawer);
+      if (resource) showPreviewDrawer(resource);
     });
   });
 
@@ -663,7 +1261,7 @@ function bindSectionEvents() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const resource = getResourceById(btn.dataset.preview);
-      if (resource) showPreview(resource, 'preview');
+      if (resource) showPreviewDrawer(resource);
     });
   });
 
@@ -694,26 +1292,26 @@ function bindSectionEvents() {
   initSourcesEvents();
 }
 
+function bindDeleteUploadEvents() {
+  if (deleteUploadListenerBound) return;
+  deleteUploadListenerBound = true;
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-delete-upload]');
+    if (!btn || !document.getElementById('app')?.contains(btn)) return;
+    e.stopPropagation();
+    deleteUserUpload(btn.dataset.deleteUpload);
+  });
+}
+
 function initSourcesEvents() {
-  document.querySelectorAll('[data-sources-tab]').forEach(tab => {
-    tab.addEventListener('click', () => {
-      document.querySelectorAll('[data-sources-tab]').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      const target = tab.dataset.sourcesTab;
-      document.getElementById('sources-tab-connections').style.display = target === 'connections' ? 'block' : 'none';
-      document.getElementById('sources-tab-files').style.display = target === 'files' ? 'block' : 'none';
+  document.querySelectorAll('[data-jump-upload-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      switchSourcesTab(btn.dataset.jumpUploadTab || 'files');
     });
   });
 
-  document.querySelectorAll('[data-toggle-conn]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const wasActive = isKnowledgeSelected(btn.dataset.toggleConn);
-      toggleKnowledge(btn.dataset.toggleConn);
-      checkAchievements('select-knowledge');
-      showDemoToast(wasActive ? 'Disconnected from chat' : 'Added to chat');
-      rerenderHub();
-    });
+  document.querySelectorAll('[data-sources-tab]').forEach(tab => {
+    tab.addEventListener('click', () => switchSourcesTab(tab.dataset.sourcesTab));
   });
 
   document.querySelectorAll('[data-request-conn]').forEach(btn => {
@@ -738,6 +1336,19 @@ function initSourcesEvents() {
   });
 
   bindFilesPanelEvents();
+}
+
+function switchSourcesTab(target) {
+  document.querySelectorAll('[data-sources-tab]').forEach(t => {
+    t.classList.toggle('active', t.dataset.sourcesTab === target);
+  });
+  const connections = document.getElementById('sources-tab-connections');
+  const files = document.getElementById('sources-tab-files');
+  if (connections) connections.style.display = target === 'connections' ? 'block' : 'none';
+  if (files) files.style.display = target === 'files' ? 'block' : 'none';
+  if (target === 'files') {
+    showDemoToast('📤 Upload your data files here');
+  }
 }
 
 function refreshFilesPanel() {
@@ -766,7 +1377,7 @@ function bindFilesPanelEvents() {
 
   document.querySelectorAll('[data-jump-group]').forEach(chip => {
     chip.addEventListener('click', (e) => {
-      if (e.target.closest('.file-chip-toggle') || e.target.closest('.file-chip-disconnect')) return;
+      if (e.target.closest('.file-chip-toggle') || e.target.closest('.file-chip-disconnect') || e.target.closest('.file-chip-delete')) return;
       activeFileGroup = chip.dataset.jumpGroup;
       showUploadForm = false;
       refreshFilesPanel();
@@ -785,12 +1396,15 @@ function bindFilesPanelEvents() {
       zone.classList.remove('dragover');
       showUploadForm = true;
       refreshFilesPanel();
-      showDemoToast('📄 File received (demo)');
+      const fileName = e.dataTransfer?.files?.[0]?.name || 'uploaded-file.csv';
+      setTimeout(() => applySourceAITags(groupId, fileName), 50);
+      showDemoToast('📄 File received — AI tagging...');
     });
     input?.addEventListener('change', () => {
       if (input.files?.length) {
         showUploadForm = true;
         refreshFilesPanel();
+        setTimeout(() => applySourceAITags(groupId, input.files[0].name), 50);
       }
     });
   });
@@ -801,19 +1415,25 @@ function bindFilesPanelEvents() {
       const group = sourceFileGroups.find(g => g.id === groupId);
       const name = document.querySelector(`[data-upload-name="${groupId}"]`)?.value || `${group?.label} Upload`;
       const aiDescription = document.querySelector(`[data-upload-desc="${groupId}"]`)?.value || '';
+      const ai = generateAITags(name, { groupLabel: group?.label });
 
       const file = {
         id: `src-${Date.now()}`,
         title: name,
-        description: aiDescription || `Uploaded ${group?.label} file.`,
-        aiDescription,
+        description: aiDescription || ai.aiDescription,
+        aiDescription: aiDescription || ai.aiDescription,
         groupId,
         groupLabel: group?.label,
         type: 'source',
         sourceType: 'file',
-        tags: [group?.label || 'Source'],
-        summary: aiDescription || `Source file: ${name} (${group?.label}).`,
-        preview: `## ${name}\n\n**Type:** ${group?.label}\n\n**About this file:**\n${aiDescription || 'No description provided.'}`,
+        brand: ai.brand,
+        market: ai.market,
+        country: ai.market,
+        aiTags: ai.tags,
+        tags: ai.tags,
+        aiTagged: true,
+        summary: aiDescription || `Source file: ${name} (${group?.label}). ${ai.aiDescription}`,
+        preview: `## ${name}\n\n**Type:** ${group?.label}\n**Brand:** ${ai.brand}\n**Market:** ${ai.market}\n\n**About this file:**\n${aiDescription || ai.aiDescription}`,
       };
 
       addUploadedSourceFile(file);
@@ -873,19 +1493,26 @@ function initUploadZone() {
     e.preventDefault();
     zone.classList.remove('dragover');
     formCard.style.display = 'block';
-    showDemoToast('📄 File received (demo)');
+    const fileName = e.dataTransfer?.files?.[0]?.name || 'brand-strategy.pdf';
+    setTimeout(() => applyBrandAITags(fileName), 50);
+    showDemoToast('📄 File received — AI tagging...');
   });
 
   fileInput?.addEventListener('change', () => {
-    if (fileInput.files?.length) formCard.style.display = 'block';
+    if (fileInput.files?.length) {
+      formCard.style.display = 'block';
+      applyBrandAITags(fileInput.files[0].name);
+    }
   });
 
   document.getElementById('confirm-upload')?.addEventListener('click', () => {
     const name = document.getElementById('upload-name')?.value || 'Uploaded Brand File';
-    const brand = document.getElementById('upload-brand')?.value || 'Custom';
-    const country = document.getElementById('upload-country')?.value || 'Global';
+    const ai = generateAITags(name, { fileType: 'Brand Strategy' });
+    const brand = document.getElementById('upload-brand')?.value || ai.brand;
+    const country = document.getElementById('upload-country')?.value || ai.market;
     const year = document.getElementById('upload-year')?.value || '2026';
-    const demand = document.getElementById('upload-demand')?.value || 'General';
+    const demand = document.getElementById('upload-demand')?.value || ai.fileType;
+    const aiTags = [...new Set([brand, country, year, demand, 'AI-tagged'])];
 
     const file = {
       id: `upload-${Date.now()}`,
@@ -893,8 +1520,12 @@ function initUploadZone() {
       description: `Uploaded brand strategy file for ${brand}.`,
       type: 'brand',
       brand, country, year,
+      market: country,
       demandSpace: demand,
-      tags: [brand, country, year, demand],
+      aiTags,
+      tags: aiTags,
+      aiTagged: true,
+      aiDescription: `AI tagged: ${brand} · ${country} · ${demand}`,
       summary: `Demo uploaded file: ${name}. Tagged for ${brand} in ${country} (${year}), demand space: ${demand}.`,
       preview: `## ${name}\n\n**Brand:** ${brand}\n**Country:** ${country}\n**Year:** ${year}\n**Demand Space:** ${demand}\n\nThis is a demo uploaded file. In production, the full document content would be displayed here.`,
     };
@@ -926,6 +1557,48 @@ function initSupport() {
     document.getElementById('support-subject').value = '';
     document.getElementById('support-message').value = '';
   });
+}
+
+function applySourceAITags(groupId, fileName) {
+  const group = sourceFileGroups.find(g => g.id === groupId);
+  const ai = generateAITags(fileName, { groupLabel: group?.label });
+  const nameInput = document.querySelector(`[data-upload-name="${groupId}"]`);
+  const descInput = document.querySelector(`[data-upload-desc="${groupId}"]`);
+
+  if (nameInput && !nameInput.value) {
+    nameInput.value = fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
+  }
+  if (descInput) descInput.value = ai.aiDescription;
+
+  const preview = document.querySelector(`[data-ai-preview="${groupId}"]`);
+  const chips = document.querySelector(`[data-ai-tags="${groupId}"]`);
+  if (preview && chips) {
+    chips.innerHTML = ai.tags.map(t => `<span class="tag tag-ai">${t}</span>`).join('');
+    preview.hidden = false;
+  }
+  showDemoToast('✨ AI tagged: brand, file type & market');
+}
+
+function applyBrandAITags(fileName) {
+  const ai = generateAITags(fileName, { fileType: 'Brand Strategy' });
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el && !el.value) el.value = val;
+  };
+
+  setVal('upload-name', fileName.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' '));
+  setVal('upload-brand', ai.brand);
+  setVal('upload-country', ai.market);
+  setVal('upload-year', '2026');
+  setVal('upload-demand', ai.fileType);
+
+  const preview = document.getElementById('brand-ai-preview');
+  const chips = document.getElementById('brand-ai-tags');
+  if (preview && chips) {
+    chips.innerHTML = ai.tags.map(t => `<span class="tag tag-ai">${t}</span>`).join('');
+    preview.hidden = false;
+  }
+  showDemoToast('✨ AI auto-tagged your upload');
 }
 
 function showDemoToast(msg) {
