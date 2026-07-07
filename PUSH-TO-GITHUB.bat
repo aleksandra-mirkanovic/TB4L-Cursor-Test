@@ -57,6 +57,17 @@ if errorlevel 1 (
 )
 echo.
 
+echo Syncing with GitHub first...
+git pull origin main --rebase --allow-unrelated-histories
+if errorlevel 1 (
+  echo.
+  echo Could not sync with GitHub. If you uploaded files on github.com,
+  echo try again or ask for help in Cursor.
+  pause
+  exit /b 1
+)
+echo.
+
 echo Pushing to main...
 git push -u origin main
 if errorlevel 1 (

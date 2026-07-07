@@ -25,6 +25,16 @@ Keep the black terminal window open while using the site. Close it (or press Ctr
 
 To change the saved repo URL later, delete the file `.github-repo-url` and run the script again.
 
+### Live website (GitHub Pages)
+
+After pushing, your site is published at:
+
+**https://aleksandra-mirkanovic.github.io/TB4L-Cursor-Test/**
+
+First deploy may take 1–2 minutes. If you see a 404, check **Settings → Pages** on GitHub and make sure **Source** is set to **GitHub Actions**.
+
+Every time you run `PUSH-TO-GITHUB.bat`, the live site updates automatically.
+
 ### Manual start (terminal)
 
 ```powershell
